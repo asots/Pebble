@@ -70,55 +70,72 @@ impl Store {
             let bcc_json = serde_json::to_string(&msg.bcc_list)
                 .map_err(|e| PebbleError::Storage(e.to_string()))?;
 
-            conn.execute(
-                "INSERT INTO messages (id, account_id, remote_id, message_id_header, in_reply_to,
-                 references_header, thread_id, subject, snippet, from_address, from_name,
-                 to_list, cc_list, bcc_list, body_text, body_html_raw,
-                 has_attachments, is_read, is_starred, is_draft,
-                 date, remote_version, is_deleted, deleted_at, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                         ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
-                         ?21, ?22, ?23, ?24, ?25, ?26)",
-                params![
-                    msg.id,
-                    msg.account_id,
-                    msg.remote_id,
-                    msg.message_id_header,
-                    msg.in_reply_to,
-                    msg.references_header,
-                    msg.thread_id,
-                    msg.subject,
-                    msg.snippet,
-                    msg.from_address,
-                    msg.from_name,
-                    to_json,
-                    cc_json,
-                    bcc_json,
-                    msg.body_text,
-                    msg.body_html_raw,
-                    msg.has_attachments as i32,
-                    msg.is_read as i32,
-                    msg.is_starred as i32,
-                    msg.is_draft as i32,
-                    msg.date,
-                    msg.remote_version,
-                    msg.is_deleted as i32,
-                    msg.deleted_at,
-                    msg.created_at,
-                    msg.updated_at,
-                ],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            conn.execute_batch("BEGIN")
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
 
-            for folder_id in folder_ids {
+            let result = (|| -> Result<()> {
                 conn.execute(
-                    "INSERT INTO message_folders (message_id, folder_id) VALUES (?1, ?2)",
-                    params![msg.id, folder_id],
+                    "INSERT INTO messages (id, account_id, remote_id, message_id_header, in_reply_to,
+                     references_header, thread_id, subject, snippet, from_address, from_name,
+                     to_list, cc_list, bcc_list, body_text, body_html_raw,
+                     has_attachments, is_read, is_starred, is_draft,
+                     date, remote_version, is_deleted, deleted_at, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                             ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
+                             ?21, ?22, ?23, ?24, ?25, ?26)",
+                    params![
+                        msg.id,
+                        msg.account_id,
+                        msg.remote_id,
+                        msg.message_id_header,
+                        msg.in_reply_to,
+                        msg.references_header,
+                        msg.thread_id,
+                        msg.subject,
+                        msg.snippet,
+                        msg.from_address,
+                        msg.from_name,
+                        to_json,
+                        cc_json,
+                        bcc_json,
+                        msg.body_text,
+                        msg.body_html_raw,
+                        msg.has_attachments as i32,
+                        msg.is_read as i32,
+                        msg.is_starred as i32,
+                        msg.is_draft as i32,
+                        msg.date,
+                        msg.remote_version,
+                        msg.is_deleted as i32,
+                        msg.deleted_at,
+                        msg.created_at,
+                        msg.updated_at,
+                    ],
                 )
                 .map_err(|e| PebbleError::Storage(e.to_string()))?;
-            }
 
-            Ok(())
+                for folder_id in folder_ids {
+                    conn.execute(
+                        "INSERT INTO message_folders (message_id, folder_id) VALUES (?1, ?2)",
+                        params![msg.id, folder_id],
+                    )
+                    .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                }
+
+                Ok(())
+            })();
+
+            match result {
+                Ok(()) => {
+                    conn.execute_batch("COMMIT")
+                        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                    Ok(())
+                }
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
+                }
+            }
         })
     }
 
@@ -173,20 +190,34 @@ impl Store {
         is_starred: Option<bool>,
     ) -> Result<()> {
         self.with_conn(|conn| {
+            let mut sets = Vec::new();
+            let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
             if let Some(read) = is_read {
-                conn.execute(
-                    "UPDATE messages SET is_read = ?1, updated_at = ?2 WHERE id = ?3",
-                    params![read as i32, pebble_core::now_timestamp(), id],
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                sets.push(format!("is_read = ?{}", values.len() + 1));
+                values.push(Box::new(read as i32));
             }
             if let Some(starred) = is_starred {
-                conn.execute(
-                    "UPDATE messages SET is_starred = ?1, updated_at = ?2 WHERE id = ?3",
-                    params![starred as i32, pebble_core::now_timestamp(), id],
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                sets.push(format!("is_starred = ?{}", values.len() + 1));
+                values.push(Box::new(starred as i32));
             }
+
+            if sets.is_empty() {
+                return Ok(());
+            }
+
+            let now = pebble_core::now_timestamp();
+            sets.push(format!("updated_at = ?{}", values.len() + 1));
+            values.push(Box::new(now));
+
+            let id_idx = values.len() + 1;
+            values.push(Box::new(id.to_string()));
+
+            let sql = format!("UPDATE messages SET {} WHERE id = ?{}", sets.join(", "), id_idx);
+            let params: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|v| v.as_ref()).collect();
+            conn.execute(&sql, params.as_slice())
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+
             Ok(())
         })
     }
@@ -200,6 +231,70 @@ impl Store {
             )
             .map_err(|e| PebbleError::Storage(e.to_string()))?;
             Ok(())
+        })
+    }
+
+    /// Check whether a message with the given `remote_id` exists for this account.
+    pub fn has_message_by_remote_id(&self, account_id: &str, remote_id: &str) -> Result<bool> {
+        self.with_conn(|conn| {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM messages WHERE account_id = ?1 AND remote_id = ?2",
+                    params![account_id, remote_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            Ok(count > 0)
+        })
+    }
+
+    /// Get the maximum remote_id (interpreted as integer) for messages in a folder.
+    pub fn get_max_remote_id(
+        &self,
+        account_id: &str,
+        folder_id: &str,
+    ) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            let result: Option<i64> = conn
+                .query_row(
+                    "SELECT MAX(CAST(m.remote_id AS INTEGER))
+                     FROM messages m
+                     JOIN message_folders mf ON m.id = mf.message_id
+                     WHERE m.account_id = ?1 AND mf.folder_id = ?2 AND m.is_deleted = 0",
+                    params![account_id, folder_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            Ok(result.map(|v| v.to_string()))
+        })
+    }
+
+    /// Get all (message_id_header, thread_id) pairs for an account where both are present.
+    pub fn get_thread_mappings(
+        &self,
+        account_id: &str,
+    ) -> Result<Vec<(String, String)>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT message_id_header, thread_id
+                     FROM messages
+                     WHERE account_id = ?1
+                       AND message_id_header IS NOT NULL
+                       AND thread_id IS NOT NULL
+                       AND is_deleted = 0",
+                )
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            let rows = stmt
+                .query_map(params![account_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+            }
+            Ok(results)
         })
     }
 }
