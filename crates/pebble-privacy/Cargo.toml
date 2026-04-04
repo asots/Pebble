@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 pebble-core = { path = "../pebble-core" }
 thiserror = { workspace = true }
+ammonia = { workspace = true }
