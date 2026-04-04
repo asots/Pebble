@@ -99,9 +99,35 @@ export function useKeyboard() {
           }
           break;
         }
-        case "open-message":
-          // Message detail shows automatically when selected; Enter is a no-op confirmation
+        case "open-message": {
+          const { selectedMessageId: curId, messages: curMsgs } = useMailStore.getState();
+          if (!curId && curMsgs.length > 0) {
+            useMailStore.getState().setSelectedMessage(curMsgs[0].id);
+          }
           break;
+        }
+        case "open-search":
+          useUIStore.getState().setActiveView("search");
+          break;
+        case "backup-to-cloud": {
+          const url = localStorage.getItem("pebble-webdav-url") || "";
+          if (url) {
+            import("@/lib/api").then(({ backupToWebdav }) => {
+              const user = localStorage.getItem("pebble-webdav-user") || "";
+              const pass = localStorage.getItem("pebble-webdav-pass") || "";
+              backupToWebdav(url, user, pass).catch(console.error);
+            });
+          } else {
+            useUIStore.getState().setActiveView("settings");
+          }
+          break;
+        }
+        case "toggle-notifications": {
+          const key = "pebble-notifications-enabled";
+          const cur = localStorage.getItem(key) !== "false";
+          localStorage.setItem(key, String(!cur));
+          break;
+        }
         default:
           break;
       }
