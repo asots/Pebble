@@ -148,6 +148,18 @@ pub enum TrustType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rule {
+    pub id: String,
+    pub name: String,
+    pub priority: i32,
+    pub conditions: String,
+    pub actions: String,
+    pub is_enabled: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PrivacyMode {
     Strict,
     TrustSender(String),

@@ -1,7 +1,11 @@
 pub mod accounts;
 pub mod folders;
+pub mod kanban;
 pub mod messages;
 pub mod migrations;
+pub mod rules;
+pub mod snooze;
+pub mod trusted_senders;
 
 use pebble_core::{PebbleError, Result};
 use rusqlite::Connection;
@@ -34,7 +38,8 @@ impl Store {
     }
 
     fn initialize(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock()
+            .map_err(|e| PebbleError::Internal(format!("Lock poisoned: {e}")))?;
         migrations::run_migrations(&conn)
     }
 
@@ -42,7 +47,8 @@ impl Store {
     where
         F: FnOnce(&Connection) -> Result<T>,
     {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock()
+            .map_err(|e| PebbleError::Internal(format!("Lock poisoned: {e}")))?;
         f(&conn)
     }
 }
