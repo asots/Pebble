@@ -45,16 +45,22 @@ function getPresets(): { label: string; getTimestamp: () => number }[] {
   ];
 }
 
-export default function SnoozePopover({ messageId, onClose: _onClose, onSnoozed }: Props) {
+export default function SnoozePopover({ messageId, onClose, onSnoozed }: Props) {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   async function handleSnooze(getTimestamp: () => number) {
     setLoading(true);
     try {
       await snoozeMessage(messageId, getTimestamp(), "inbox");
       onSnoozed();
-    } catch (e) {
-      console.error("Snooze failed:", e);
+    } catch (err) {
+      console.error("Snooze failed:", err);
+      setError(true);
+      setTimeout(() => {
+        setError(false);
+        onClose();
+      }, 2000);
     } finally {
       setLoading(false);
     }
@@ -114,6 +120,16 @@ export default function SnoozePopover({ messageId, onClose: _onClose, onSnoozed 
           {preset.label}
         </button>
       ))}
+      {error && (
+        <div style={{
+          padding: "6px 10px",
+          fontSize: "12px",
+          color: "#ef4444",
+          textAlign: "center",
+        }}>
+          Snooze failed
+        </div>
+      )}
     </div>
   );
 }
