@@ -6,6 +6,7 @@ import { advancedSearch, searchMessages, getMessage } from "@/lib/api";
 import { useUIStore } from "@/stores/ui.store";
 import SearchFilters from "./SearchFilters";
 import SearchResultItem from "./SearchResultItem";
+import MessageDetail from "@/components/MessageDetail";
 
 const emptyFilters: AdvancedSearchQuery = {};
 
@@ -170,70 +171,91 @@ export default function SearchView() {
         />
       )}
 
-      {/* Results */}
-      <div style={{ flex: 1, overflow: "auto" }}>
-        {loading && (
-          <div
-            className="fade-in"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "40px",
-              color: "var(--color-text-secondary)",
-              fontSize: "13px",
-              gap: "10px",
-            }}
-          >
-            <Loader size={20} className="spinner" />
-            <span>{t("common.loading")}</span>
-          </div>
-        )}
+      {/* Results + Detail split layout */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        {/* Results list */}
+        <div
+          style={{
+            width: selectedId ? "360px" : "100%",
+            flexShrink: 0,
+            overflow: "auto",
+            borderRight: selectedId ? "1px solid var(--color-border)" : "none",
+            transition: "width 0.15s ease",
+          }}
+        >
+          {loading && (
+            <div
+              className="fade-in"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "40px",
+                color: "var(--color-text-secondary)",
+                fontSize: "13px",
+                gap: "10px",
+              }}
+            >
+              <Loader size={20} className="spinner" />
+              <span>{t("common.loading")}</span>
+            </div>
+          )}
 
-        {!loading && hasSearched && results.length === 0 && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "40px",
-              color: "var(--color-text-secondary)",
-              fontSize: "14px",
-            }}
-          >
-            {t("search.noResults")}
-          </div>
-        )}
+          {!loading && hasSearched && results.length === 0 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "40px",
+                color: "var(--color-text-secondary)",
+                fontSize: "14px",
+              }}
+            >
+              {t("search.noResults")}
+            </div>
+          )}
 
-        {!loading && !hasSearched && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "60px 20px",
-              color: "var(--color-text-tertiary)",
-              fontSize: "14px",
-              gap: "8px",
-            }}
-          >
-            <Search size={32} />
-            <span>{t("search.title")}</span>
-          </div>
-        )}
+          {!loading && !hasSearched && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "60px 20px",
+                color: "var(--color-text-tertiary)",
+                fontSize: "14px",
+                gap: "8px",
+              }}
+            >
+              <Search size={32} />
+              <span>{t("search.title")}</span>
+            </div>
+          )}
 
-        {!loading &&
-          results.map((hit) => (
-            <SearchResultItem
-              key={hit.message_id}
-              hit={hit}
-              message={messages[hit.message_id] ?? null}
-              isSelected={hit.message_id === selectedId}
-              onClick={() => setSelectedId(hit.message_id)}
+          {!loading &&
+            results.map((hit) => (
+              <SearchResultItem
+                key={hit.message_id}
+                hit={hit}
+                message={messages[hit.message_id] ?? null}
+                isSelected={hit.message_id === selectedId}
+                onClick={() => setSelectedId(hit.message_id)}
+              />
+            ))}
+        </div>
+
+        {/* Detail panel */}
+        {selectedId && (
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <MessageDetail
+              messageId={selectedId}
+              onBack={() => setSelectedId(null)}
             />
-          ))}
+          </div>
+        )}
       </div>
     </div>
   );
