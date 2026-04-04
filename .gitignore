@@ -1,3 +1,10 @@
 node_modules/
 target/
 dist/
+.env
+.env.*
+src-tauri/gen/
+*.pem
+*.key
+*.p12
+pnpm-debug.log
