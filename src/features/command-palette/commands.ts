@@ -99,7 +99,7 @@ export function buildCommands(): Command[] {
       name: "Toggle Notifications",
       category: "Settings",
       execute: () => {
-        const current = localStorage.getItem(NOTIFICATIONS_KEY) === "true";
+        const current = localStorage.getItem(NOTIFICATIONS_KEY) !== "false";
         localStorage.setItem(NOTIFICATIONS_KEY, String(!current));
       },
     },
