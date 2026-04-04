@@ -5,6 +5,7 @@ pub mod messages;
 pub mod migrations;
 pub mod rules;
 pub mod snooze;
+pub mod translate_config;
 pub mod trusted_senders;
 
 use pebble_core::{PebbleError, Result};

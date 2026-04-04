@@ -188,6 +188,16 @@ pub struct ProviderCapabilities {
     pub has_threads: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranslateConfig {
+    pub id: String,
+    pub provider_type: String,
+    pub config: String,
+    pub is_enabled: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 pub fn new_id() -> String {
     Uuid::new_v4().to_string()
 }
