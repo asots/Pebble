@@ -6,6 +6,7 @@ members = [
     "crates/pebble-privacy",
     "crates/pebble-mail",
     "crates/pebble-search",
+    "crates/pebble-rules",
 ]
 resolver = "2"
 
