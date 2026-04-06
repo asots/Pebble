@@ -132,6 +132,7 @@ impl TantivySearch {
             .lock()
             .map_err(|e| PebbleError::Internal(format!("Lock poisoned: {e}")))?;
 
+        writer.delete_term(Term::from_field_text(ss.message_id, &msg.id));
         writer
             .add_document(doc)
             .map_err(|e| PebbleError::Internal(format!("Failed to add document: {e}")))?;
@@ -154,6 +155,15 @@ impl TantivySearch {
             .reload()
             .map_err(|e| PebbleError::Internal(format!("Failed to reload reader: {e}")))?;
 
+        Ok(())
+    }
+
+    pub fn remove_message(&self, message_id: &str) -> Result<()> {
+        let writer = self
+            .writer
+            .lock()
+            .map_err(|e| PebbleError::Internal(format!("Lock poisoned: {e}")))?;
+        writer.delete_term(Term::from_field_text(self.schema.message_id, message_id));
         Ok(())
     }
 
@@ -475,5 +485,45 @@ mod tests {
 
         let hits_after = engine.search("Clearable", 10).unwrap();
         assert!(hits_after.is_empty(), "expected no results after clear");
+    }
+
+    #[test]
+    fn test_reindex_same_message_replaces_old_document() {
+        let engine = TantivySearch::open_in_memory().unwrap();
+        let mut msg = make_test_message(
+            "msg-6",
+            "Old subject",
+            "old body",
+            "sender@example.com",
+        );
+
+        engine.index_message(&msg, &["inbox".to_string()]).unwrap();
+        engine.commit().unwrap();
+
+        msg.subject = "New subject".to_string();
+        msg.body_text = "new body".to_string();
+        engine.index_message(&msg, &["archive".to_string()]).unwrap();
+        engine.commit().unwrap();
+
+        let old_hits = engine.search("Old", 10).unwrap();
+        assert!(old_hits.is_empty(), "expected old document to be replaced");
+
+        let new_hits = engine.search("New", 10).unwrap();
+        assert_eq!(new_hits.len(), 1, "expected one replacement document");
+
+        let inbox_hits = engine
+            .advanced_search(AdvancedSearchParams {
+                text: Some("New"),
+                from: None,
+                to: None,
+                subject: None,
+                date_from: None,
+                date_to: None,
+                has_attachment: None,
+                folder_id: Some("inbox"),
+                limit: 10,
+            })
+            .unwrap();
+        assert!(inbox_hits.is_empty(), "expected old folder mapping to be replaced");
     }
 }

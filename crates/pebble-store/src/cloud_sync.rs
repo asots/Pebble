@@ -3,6 +3,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::Store;
 
+fn provider_slug(provider: &pebble_core::ProviderType) -> &'static str {
+    match provider {
+        pebble_core::ProviderType::Imap => "imap",
+        pebble_core::ProviderType::Gmail => "gmail",
+        pebble_core::ProviderType::Outlook => "outlook",
+    }
+}
+
 /// Portable settings backup payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsBackup {
@@ -179,6 +187,13 @@ impl Store {
                     updated_at: pebble_core::now_timestamp(),
                 };
                 self.insert_account(&account)?;
+                let sync_state = serde_json::json!({
+                    "provider": provider_slug(&ab.provider),
+                    "needs_reauth": true,
+                    "restore_is_partial": true,
+                    "restored_from_backup_at": pebble_core::now_timestamp(),
+                });
+                self.update_account_sync_state(&account.id, &sync_state.to_string())?;
             }
         }
 
@@ -346,5 +361,37 @@ mod tests {
         let rules = store.list_rules().unwrap();
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].name, "New Rule");
+    }
+
+    #[test]
+    fn test_import_marks_restored_accounts_as_needing_reauth() {
+        let store = Store::open_in_memory().unwrap();
+        let now = now_timestamp();
+
+        let backup = SettingsBackup {
+            version: 1,
+            exported_at: now,
+            accounts: vec![AccountBackup {
+                id: "gmail-account".to_string(),
+                email: "gmail@example.com".to_string(),
+                display_name: "Gmail User".to_string(),
+                provider: ProviderType::Gmail,
+            }],
+            rules: vec![],
+            kanban_cards: vec![],
+            translate_config: None,
+        };
+
+        let data = serde_json::to_vec(&backup).unwrap();
+        store.import_settings(&data).unwrap();
+
+        let sync_state = store
+            .get_account_sync_state("gmail-account")
+            .unwrap()
+            .expect("expected sync_state metadata");
+        let value: serde_json::Value = serde_json::from_str(&sync_state).unwrap();
+        assert_eq!(value["provider"], "gmail");
+        assert_eq!(value["needs_reauth"], true);
+        assert_eq!(value["restore_is_partial"], true);
     }
 }

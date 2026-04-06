@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use pebble_core::{Message, Result, new_id, now_timestamp};
@@ -14,31 +14,110 @@ pub struct SyncError {
     pub timestamp: u64,
 }
 
-use crate::parser::parse_raw_email;
+use crate::parser::{AttachmentData, parse_raw_email};
 use crate::provider::imap_provider::ImapMailProvider;
 use crate::reconcile;
 use crate::thread::compute_thread_id;
 
 /// Sanitize a filename to prevent path traversal attacks.
 /// Removes path separators, `..` sequences, and trims leading dots/spaces.
-fn sanitize_filename(name: &str) -> String {
+pub(crate) fn sanitize_filename(name: &str) -> String {
+    fn is_windows_reserved(stem: &str) -> bool {
+        let upper = stem.trim().to_ascii_uppercase();
+        matches!(
+            upper.as_str(),
+            "CON"
+                | "PRN"
+                | "AUX"
+                | "NUL"
+                | "COM1"
+                | "COM2"
+                | "COM3"
+                | "COM4"
+                | "COM5"
+                | "COM6"
+                | "COM7"
+                | "COM8"
+                | "COM9"
+                | "LPT1"
+                | "LPT2"
+                | "LPT3"
+                | "LPT4"
+                | "LPT5"
+                | "LPT6"
+                | "LPT7"
+                | "LPT8"
+                | "LPT9"
+        )
+    }
+
     // Take only the last component if there are path separators
     let base = name
         .rsplit(|c: char| c == '/' || c == '\\')
         .next()
         .unwrap_or(name);
-    // Remove .. sequences and control characters
+    // Remove `..`, Windows-unsafe characters, and control characters.
     let sanitized: String = base
         .replace("..", "")
         .chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '|' | '?' | '*' => '_',
+            _ => c,
+        })
         .filter(|c| !c.is_control())
         .collect();
-    // Trim leading dots and spaces
-    let trimmed = sanitized.trim_start_matches('.').trim();
+
+    // Windows disallows names ending with dots/spaces and hidden/path-like prefixes are unsafe.
+    let trimmed = sanitized.trim().trim_matches(|c: char| c == '.' || c == ' ');
     if trimmed.is_empty() {
-        "unnamed_attachment".to_string()
-    } else {
-        trimmed.to_string()
+        return "unnamed_attachment".to_string();
+    }
+
+    let stem = trimmed.split('.').next().unwrap_or(trimmed);
+    if is_windows_reserved(stem) {
+        return "unnamed_attachment".to_string();
+    }
+
+    trimmed.to_string()
+}
+
+pub(crate) fn persist_message_attachments(
+    store: &Store,
+    attachments_root: &Path,
+    message_id: &str,
+    attachments: &[AttachmentData],
+) {
+    for att_data in attachments {
+        let att_dir = attachments_root.join(message_id);
+        if std::fs::create_dir_all(&att_dir).is_err() {
+            warn!("Failed to create attachment dir for message {}", message_id);
+            continue;
+        }
+
+        let safe_filename = sanitize_filename(&att_data.meta.filename);
+        if safe_filename.is_empty() {
+            warn!("Attachment has empty filename after sanitization, skipping");
+            continue;
+        }
+
+        let file_path = att_dir.join(&safe_filename);
+        if std::fs::write(&file_path, &att_data.data).is_ok() {
+            let attachment = pebble_core::Attachment {
+                id: new_id(),
+                message_id: message_id.to_string(),
+                filename: att_data.meta.filename.clone(),
+                mime_type: att_data.meta.mime_type.clone(),
+                size: att_data.meta.size as i64,
+                local_path: Some(file_path.to_string_lossy().to_string()),
+                content_id: att_data.meta.content_id.clone(),
+                is_inline: att_data.meta.is_inline,
+            };
+            if let Err(e) = store.insert_attachment(&attachment) {
+                warn!("Failed to store attachment record: {}", e);
+            }
+        } else {
+            warn!("Failed to write attachment file: {}", file_path.display());
+        }
     }
 }
 
@@ -365,38 +444,12 @@ impl SyncWorker {
                         });
                     }
 
-                    // Save attachments to disk and record in store
-                    for att_data in &parsed.attachments {
-                        let att_dir = self.attachments_dir.join(&msg.id);
-                        if std::fs::create_dir_all(&att_dir).is_err() {
-                            warn!("Failed to create attachment dir for message {}", msg.id);
-                            continue;
-                        }
-                        // Sanitize filename to prevent path traversal
-                        let safe_filename = sanitize_filename(&att_data.meta.filename);
-                        if safe_filename.is_empty() {
-                            warn!("Attachment has empty filename after sanitization, skipping");
-                            continue;
-                        }
-                        let file_path = att_dir.join(&safe_filename);
-                        if std::fs::write(&file_path, &att_data.data).is_ok() {
-                            let attachment = pebble_core::Attachment {
-                                id: new_id(),
-                                message_id: msg.id.clone(),
-                                filename: att_data.meta.filename.clone(),
-                                mime_type: att_data.meta.mime_type.clone(),
-                                size: att_data.meta.size as i64,
-                                local_path: Some(file_path.to_string_lossy().to_string()),
-                                content_id: att_data.meta.content_id.clone(),
-                                is_inline: att_data.meta.is_inline,
-                            };
-                            if let Err(e) = self.store.insert_attachment(&attachment) {
-                                warn!("Failed to store attachment record: {}", e);
-                            }
-                        } else {
-                            warn!("Failed to write attachment file: {}", file_path.display());
-                        }
-                    }
+                    persist_message_attachments(
+                        &self.store,
+                        &self.attachments_dir,
+                        &msg.id,
+                        &parsed.attachments,
+                    );
                 }
                 Err(e) => {
                     error!("Failed to store message UID {}: {}", uid, e);
@@ -735,6 +788,22 @@ mod tests {
         let (uid, modseq) = parse_cursor("123;modseq=abc");
         assert_eq!(uid, Some(123));
         assert_eq!(modseq, None);
+    }
+
+    #[test]
+    fn test_sanitize_filename_rejects_windows_reserved_names() {
+        assert_eq!(sanitize_filename("CON.txt"), "unnamed_attachment");
+        assert_eq!(sanitize_filename("aux"), "unnamed_attachment");
+        assert_eq!(sanitize_filename("LPT1.log"), "unnamed_attachment");
+    }
+
+    #[test]
+    fn test_sanitize_filename_removes_windows_unsafe_characters() {
+        assert_eq!(
+            sanitize_filename("quarterly:report*final?.pdf"),
+            "quarterly_report_final_.pdf",
+        );
+        assert_eq!(sanitize_filename("report. "), "report");
     }
 
     #[test]

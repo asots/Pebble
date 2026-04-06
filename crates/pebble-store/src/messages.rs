@@ -1,5 +1,6 @@
 use pebble_core::{Message, MessageSummary, PebbleError, Result};
 use rusqlite::{params, OptionalExtension, Row};
+use std::collections::HashMap;
 
 use crate::Store;
 
@@ -335,6 +336,48 @@ impl Store {
         })
     }
 
+    pub fn get_messages_batch(&self, ids: &[String]) -> Result<Vec<Message>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        self.with_read(|conn| {
+            let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{i}")).collect();
+            let sql = format!(
+                "SELECT {MSG_SELECT} FROM messages WHERE id IN ({})",
+                placeholders.join(", ")
+            );
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+
+            let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::with_capacity(ids.len());
+            for id in ids {
+                param_values.push(Box::new(id.clone()));
+            }
+            let params: Vec<&dyn rusqlite::types::ToSql> =
+                param_values.iter().map(|v| v.as_ref()).collect();
+
+            let rows = stmt
+                .query_map(params.as_slice(), row_to_message)
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+
+            let mut by_id = HashMap::new();
+            for row in rows {
+                let message = row.map_err(|e| PebbleError::Storage(e.to_string()))?;
+                by_id.insert(message.id.clone(), message);
+            }
+
+            let mut ordered = Vec::with_capacity(ids.len());
+            for id in ids {
+                if let Some(message) = by_id.remove(id) {
+                    ordered.push(message);
+                }
+            }
+            Ok(ordered)
+        })
+    }
+
     pub fn update_message_flags(
         &self,
         id: &str,
@@ -400,6 +443,75 @@ impl Store {
                     "UPDATE messages SET is_deleted = 0, deleted_at = NULL, updated_at = ?1 WHERE id = ?2",
                     params![now, message_id],
                 ).map_err(|e| PebbleError::Storage(e.to_string()))?;
+
+                Ok(())
+            })();
+
+            match result {
+                Ok(()) => {
+                    conn.execute_batch("COMMIT")
+                        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                    Ok(())
+                }
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
+                }
+            }
+        })
+    }
+
+    pub fn add_message_to_folder(&self, message_id: &str, folder_id: &str) -> Result<()> {
+        self.with_write(|conn| {
+            let now = pebble_core::now_timestamp();
+            conn.execute(
+                "INSERT OR IGNORE INTO message_folders (message_id, folder_id) VALUES (?1, ?2)",
+                params![message_id, folder_id],
+            )
+            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            conn.execute(
+                "UPDATE messages SET is_deleted = 0, deleted_at = NULL, updated_at = ?1 WHERE id = ?2",
+                params![now, message_id],
+            )
+            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            Ok(())
+        })
+    }
+
+    pub fn remove_message_from_folder(&self, message_id: &str, folder_id: &str) -> Result<()> {
+        self.with_write(|conn| {
+            let now = pebble_core::now_timestamp();
+            conn.execute_batch("BEGIN")
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+
+            let result = (|| -> Result<()> {
+                conn.execute(
+                    "DELETE FROM message_folders WHERE message_id = ?1 AND folder_id = ?2",
+                    params![message_id, folder_id],
+                )
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+
+                let remaining: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM message_folders WHERE message_id = ?1",
+                        params![message_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| PebbleError::Storage(e.to_string()))?;
+
+                if remaining == 0 {
+                    conn.execute(
+                        "UPDATE messages SET is_deleted = 1, deleted_at = ?1, updated_at = ?1 WHERE id = ?2",
+                        params![now, message_id],
+                    )
+                    .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                } else {
+                    conn.execute(
+                        "UPDATE messages SET updated_at = ?1 WHERE id = ?2",
+                        params![now, message_id],
+                    )
+                    .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                }
 
                 Ok(())
             })();
@@ -492,6 +604,50 @@ impl Store {
             let mut result = HashSet::new();
             for row in rows {
                 result.insert(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+            }
+            Ok(result)
+        })
+    }
+
+    pub fn get_existing_message_map_by_remote_ids(
+        &self,
+        account_id: &str,
+        remote_ids: &[String],
+    ) -> Result<HashMap<String, String>> {
+        if remote_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        self.with_read(|conn| {
+            let placeholders: Vec<String> = (0..remote_ids.len())
+                .map(|i| format!("?{}", i + 2))
+                .collect();
+            let sql = format!(
+                "SELECT remote_id, id FROM messages WHERE account_id = ?1 AND remote_id IN ({}) AND is_deleted = 0",
+                placeholders.join(", ")
+            );
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> =
+                Vec::with_capacity(remote_ids.len() + 1);
+            params_vec.push(Box::new(account_id.to_string()));
+            for remote_id in remote_ids {
+                params_vec.push(Box::new(remote_id.clone()));
+            }
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params_vec.iter().map(|p| p.as_ref()).collect();
+            let rows = stmt
+                .query_map(param_refs.as_slice(), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+
+            let mut result = HashMap::new();
+            for row in rows {
+                let (remote_id, message_id) =
+                    row.map_err(|e| PebbleError::Storage(e.to_string()))?;
+                result.insert(remote_id, message_id);
             }
             Ok(result)
         })

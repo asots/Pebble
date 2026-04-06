@@ -1,18 +1,74 @@
 use std::future::Future;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use pebble_core::traits::FolderProvider;
-use pebble_core::{new_id, now_timestamp, Result};
+use pebble_core::{new_id, now_timestamp, Folder, FolderRole, Result};
 use pebble_store::Store;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, error, info, warn};
 
-use crate::provider::gmail::GmailProvider;
-use crate::sync::{StoredMessage, SyncConfig, SyncError};
+use crate::provider::gmail::{GmailFetchedMessage, GmailProvider, visible_label_ids};
+use crate::sync::{StoredMessage, SyncConfig, SyncError, persist_message_attachments};
 use crate::thread::compute_thread_id;
+
+fn folder_sync_priority(folder: &Folder) -> i32 {
+    match folder.role {
+        Some(FolderRole::Inbox) => 0,
+        Some(FolderRole::Sent) => 1,
+        Some(FolderRole::Drafts) => 2,
+        Some(FolderRole::Trash) => 3,
+        Some(FolderRole::Spam) => 4,
+        Some(FolderRole::Archive) => 5,
+        None => 10,
+    }
+}
+
+fn build_sync_label_ids(folders: &[Folder]) -> Vec<String> {
+    let mut visible: Vec<&Folder> = folders
+        .iter()
+        .filter(|folder| {
+            !folder.remote_id.starts_with("__local_")
+                && !visible_label_ids(std::slice::from_ref(&folder.remote_id)).is_empty()
+        })
+        .collect();
+
+    visible.sort_by(|left, right| {
+        folder_sync_priority(left)
+            .cmp(&folder_sync_priority(right))
+            .then(left.sort_order.cmp(&right.sort_order))
+            .then(left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+
+    visible
+        .into_iter()
+        .map(|folder| folder.remote_id.clone())
+        .collect()
+}
+
+fn resolve_folder_ids(
+    folders_by_remote: &HashMap<String, String>,
+    label_ids: &[String],
+    fallback_folder_id: &str,
+) -> Vec<String> {
+    let mut folder_ids = Vec::new();
+    for label_id in label_ids {
+        if let Some(folder_id) = folders_by_remote.get(label_id) {
+            if !folder_ids.contains(folder_id) {
+                folder_ids.push(folder_id.clone());
+            }
+        }
+    }
+
+    if folder_ids.is_empty() {
+        folder_ids.push(fallback_folder_id.to_string());
+    }
+
+    folder_ids
+}
 
 /// Callback that refreshes the OAuth token and returns the new access token.
 pub type TokenRefresher =
@@ -78,6 +134,65 @@ impl GmailSyncWorker {
                 timestamp: now_timestamp() as u64,
             });
         }
+    }
+
+    fn emit_message_refresh(&self, message_id: &str) {
+        let Some(tx) = &self.message_tx else {
+            return;
+        };
+
+        let Ok(Some(message)) = self.store.get_message(message_id) else {
+            return;
+        };
+        let folder_ids = self.store.get_message_folder_ids(message_id).unwrap_or_default();
+        let _ = tx.send(StoredMessage {
+            message,
+            folder_ids,
+        });
+    }
+
+    async fn store_fetched_message(
+        &self,
+        fetched: GmailFetchedMessage,
+        fallback_folder_id: &str,
+        thread_mappings: &mut Vec<(String, String)>,
+    ) -> Result<bool> {
+        let GmailFetchedMessage {
+            mut message,
+            visible_label_ids,
+            attachments,
+        } = fetched;
+
+        let thread_id = compute_thread_id(&message, thread_mappings);
+        message.thread_id = Some(thread_id);
+
+        let folders_by_remote: HashMap<String, String> = self
+            .store
+            .list_folders(&self.account_id)?
+            .into_iter()
+            .map(|folder| (folder.remote_id, folder.id))
+            .collect();
+        let folder_ids = resolve_folder_ids(&folders_by_remote, &visible_label_ids, fallback_folder_id);
+
+        self.store.insert_message(&message, &folder_ids)?;
+        persist_message_attachments(
+            &self.store,
+            &self.attachments_dir,
+            &message.id,
+            &attachments,
+        );
+
+        if let (Some(mid), Some(tid)) = (&message.message_id_header, &message.thread_id) {
+            thread_mappings.push((mid.clone(), tid.clone()));
+        }
+        if let Some(tx) = &self.message_tx {
+            let _ = tx.send(StoredMessage {
+                message,
+                folder_ids,
+            });
+        }
+
+        Ok(true)
     }
 
     /// Ensure the access token is still valid; refresh if needed.
@@ -162,8 +277,8 @@ impl GmailSyncWorker {
         // Get the user profile for the latest historyId
         let (_email, profile_history_id) = self.provider.get_profile().await?;
 
-        // Fetch messages from key labels: INBOX first, then SENT
-        let labels_to_sync = ["INBOX", "SENT"];
+        // Sync every visible remote label, prioritizing system folders first.
+        let labels_to_sync = build_sync_label_ids(&self.store.list_folders(&self.account_id)?);
         let limit = if stored_cursor.is_some() { 50 } else { 200 };
 
         for label_id in &labels_to_sync {
@@ -202,25 +317,11 @@ impl GmailSyncWorker {
             return Ok(0);
         }
 
-        // Bulk-check which remote IDs already exist
         let remote_ids: Vec<String> = msg_refs.iter().map(|r| r.id.clone()).collect();
         let existing = self
             .store
-            .get_existing_remote_ids(&self.account_id, &remote_ids)
+            .get_existing_message_map_by_remote_ids(&self.account_id, &remote_ids)
             .unwrap_or_default();
-
-        let new_ids: Vec<&str> = msg_refs
-            .iter()
-            .filter(|r| !existing.contains(&r.id))
-            .map(|r| r.id.as_str())
-            .collect();
-
-        if new_ids.is_empty() {
-            debug!("No new messages for label {}", label_id);
-            return Ok(0);
-        }
-
-        info!("Fetching {} new messages for label {}", new_ids.len(), label_id);
 
         // Load thread mappings for thread ID computation
         let mut thread_mappings = self
@@ -230,34 +331,36 @@ impl GmailSyncWorker {
 
         let mut stored_count = 0u32;
 
-        // Fetch each message (could be parallelized later)
-        for gmail_id in new_ids {
-            match self.provider.fetch_full_message(gmail_id, &self.account_id).await {
-                Ok(mut msg) => {
-                    // Compute thread ID
-                    let thread_id = compute_thread_id(&msg, &thread_mappings);
-                    msg.thread_id = Some(thread_id);
-
-                    match self.store.insert_message(&msg, std::slice::from_ref(&folder_id)) {
-                        Ok(()) => {
-                            stored_count += 1;
-                            if let (Some(mid), Some(tid)) = (&msg.message_id_header, &msg.thread_id) {
-                                thread_mappings.push((mid.clone(), tid.clone()));
-                            }
-                            if let Some(tx) = &self.message_tx {
-                                let _ = tx.send(StoredMessage {
-                                    message: msg,
-                                    folder_ids: vec![folder_id.clone()],
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to store Gmail message {}: {}", gmail_id, e);
-                        }
-                    }
+        for msg_ref in msg_refs {
+            if let Some(local_id) = existing.get(&msg_ref.id) {
+                if let Err(e) = self.store.add_message_to_folder(local_id, &folder_id) {
+                    warn!(
+                        "Failed to add Gmail label {} to existing message {}: {}",
+                        label_id, msg_ref.id, e
+                    );
+                } else {
+                    self.emit_message_refresh(local_id);
                 }
+                continue;
+            }
+
+            match self
+                .provider
+                .fetch_sync_message(&msg_ref.id, &self.account_id)
+                .await
+            {
+                Ok(fetched) => match self
+                    .store_fetched_message(fetched, &folder_id, &mut thread_mappings)
+                    .await
+                {
+                    Ok(true) => stored_count += 1,
+                    Ok(false) => {}
+                    Err(e) => {
+                        error!("Failed to store Gmail message {}: {}", msg_ref.id, e);
+                    }
+                },
                 Err(e) => {
-                    warn!("Failed to fetch Gmail message {}: {}", gmail_id, e);
+                    warn!("Failed to fetch Gmail message {}: {}", msg_ref.id, e);
                 }
             }
         }
@@ -300,10 +403,20 @@ impl GmailSyncWorker {
             messages_added: Option<Vec<HistoryMsg>>,
             #[serde(rename = "messagesDeleted")]
             messages_deleted: Option<Vec<HistoryMsg>>,
+            #[serde(rename = "labelsAdded")]
+            labels_added: Option<Vec<HistoryLabelChange>>,
+            #[serde(rename = "labelsRemoved")]
+            labels_removed: Option<Vec<HistoryLabelChange>>,
         }
         #[derive(serde::Deserialize)]
         struct HistoryMsg {
             message: MsgRef,
+        }
+        #[derive(serde::Deserialize)]
+        struct HistoryLabelChange {
+            message: MsgRef,
+            #[serde(rename = "labelIds")]
+            label_ids: Vec<String>,
         }
         #[derive(serde::Deserialize)]
         struct MsgRef {
@@ -317,6 +430,8 @@ impl GmailSyncWorker {
 
         let mut new_ids = Vec::new();
         let mut deleted_ids = Vec::new();
+        let mut labels_added = Vec::new();
+        let mut labels_removed = Vec::new();
 
         if let Some(entries) = &history.history {
             for entry in entries {
@@ -330,65 +445,97 @@ impl GmailSyncWorker {
                         deleted_ids.push(m.message.id.clone());
                     }
                 }
+                if let Some(ref added) = entry.labels_added {
+                    for change in added {
+                        labels_added.push((change.message.id.clone(), change.label_ids.clone()));
+                    }
+                }
+                if let Some(ref removed) = entry.labels_removed {
+                    for change in removed {
+                        labels_removed.push((change.message.id.clone(), change.label_ids.clone()));
+                    }
+                }
             }
         }
+
+        let folders_by_remote: HashMap<String, String> = self
+            .store
+            .list_folders(&self.account_id)?
+            .into_iter()
+            .map(|folder| (folder.remote_id, folder.id))
+            .collect();
 
         // Handle deletions
         if !deleted_ids.is_empty() {
             for remote_id in &deleted_ids {
-                if let Ok(Some(local_id)) = self.store.find_message_id_by_remote(&self.account_id, remote_id) {
+                if let Ok(Some(local_id)) =
+                    self.store.find_message_id_by_remote(&self.account_id, remote_id)
+                {
                     let _ = self.store.soft_delete_message(&local_id);
+                    self.emit_message_refresh(&local_id);
                 }
             }
             info!("Deleted {} messages via history", deleted_ids.len());
         }
 
+        for (remote_id, label_ids) in labels_removed {
+            if let Ok(Some(local_id)) = self.store.find_message_id_by_remote(&self.account_id, &remote_id) {
+                for label_id in visible_label_ids(&label_ids) {
+                    if let Some(folder_id) = folders_by_remote.get(&label_id) {
+                        let _ = self.store.remove_message_from_folder(&local_id, folder_id);
+                    }
+                }
+                self.emit_message_refresh(&local_id);
+            }
+        }
+
+        for (remote_id, label_ids) in labels_added {
+            if let Ok(Some(local_id)) = self.store.find_message_id_by_remote(&self.account_id, &remote_id) {
+                for label_id in visible_label_ids(&label_ids) {
+                    if let Some(folder_id) = folders_by_remote.get(&label_id) {
+                        let _ = self.store.add_message_to_folder(&local_id, folder_id);
+                    }
+                }
+                self.emit_message_refresh(&local_id);
+            }
+        }
+
         // Fetch new messages
         if !new_ids.is_empty() {
-            // Filter out already-stored messages
             let existing = self
                 .store
-                .get_existing_remote_ids(&self.account_id, &new_ids)
+                .get_existing_message_map_by_remote_ids(&self.account_id, &new_ids)
                 .unwrap_or_default();
-            let truly_new: Vec<&str> = new_ids
-                .iter()
-                .filter(|id| !existing.contains(*id))
-                .map(|s| s.as_str())
-                .collect();
 
-            if !truly_new.is_empty() {
-                info!("Fetching {} new messages via history", truly_new.len());
-                let inbox_folder = self
-                    .store
-                    .list_folders(&self.account_id)?
-                    .into_iter()
-                    .find(|f| f.remote_id == "INBOX");
-                let folder_id = inbox_folder.map(|f| f.id).unwrap_or_default();
+            let inbox_folder_id = folders_by_remote
+                .get("INBOX")
+                .cloned()
+                .unwrap_or_default();
+            let mut thread_mappings = self
+                .store
+                .get_thread_mappings(&self.account_id)
+                .unwrap_or_default();
 
-                let mut thread_mappings = self
-                    .store
-                    .get_thread_mappings(&self.account_id)
-                    .unwrap_or_default();
+            for gmail_id in new_ids {
+                if let Some(local_id) = existing.get(&gmail_id) {
+                    self.emit_message_refresh(local_id);
+                    continue;
+                }
 
-                for gmail_id in truly_new {
-                    match self.provider.fetch_full_message(gmail_id, &self.account_id).await {
-                        Ok(mut msg) => {
-                            let thread_id = compute_thread_id(&msg, &thread_mappings);
-                            msg.thread_id = Some(thread_id);
-                            if let Ok(()) = self.store.insert_message(&msg, &[folder_id.clone()]) {
-                                if let (Some(mid), Some(tid)) = (&msg.message_id_header, &msg.thread_id) {
-                                    thread_mappings.push((mid.clone(), tid.clone()));
-                                }
-                                if let Some(tx) = &self.message_tx {
-                                    let _ = tx.send(StoredMessage {
-                                        message: msg,
-                                        folder_ids: vec![folder_id.clone()],
-                                    });
-                                }
-                            }
+                match self
+                    .provider
+                    .fetch_sync_message(&gmail_id, &self.account_id)
+                    .await
+                {
+                    Ok(fetched) => {
+                        if let Err(e) = self
+                            .store_fetched_message(fetched, &inbox_folder_id, &mut thread_mappings)
+                            .await
+                        {
+                            warn!("Failed to store history message {}: {}", gmail_id, e);
                         }
-                        Err(e) => warn!("Failed to fetch history message {}: {}", gmail_id, e),
                     }
+                    Err(e) => warn!("Failed to fetch history message {}: {}", gmail_id, e),
                 }
             }
         }
@@ -445,3 +592,84 @@ impl GmailSyncWorker {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pebble_core::{Folder, FolderRole, FolderType};
+
+    #[test]
+    fn test_build_sync_label_ids_includes_visible_custom_labels() {
+        let folders = vec![
+            Folder {
+                id: "inbox".to_string(),
+                account_id: "acct".to_string(),
+                remote_id: "INBOX".to_string(),
+                name: "Inbox".to_string(),
+                folder_type: FolderType::Label,
+                role: Some(FolderRole::Inbox),
+                parent_id: None,
+                color: None,
+                is_system: true,
+                sort_order: 0,
+            },
+            Folder {
+                id: "starred".to_string(),
+                account_id: "acct".to_string(),
+                remote_id: "STARRED".to_string(),
+                name: "Starred".to_string(),
+                folder_type: FolderType::Label,
+                role: None,
+                parent_id: None,
+                color: None,
+                is_system: true,
+                sort_order: 1,
+            },
+            Folder {
+                id: "custom".to_string(),
+                account_id: "acct".to_string(),
+                remote_id: "Label_Projects".to_string(),
+                name: "Projects".to_string(),
+                folder_type: FolderType::Label,
+                role: None,
+                parent_id: None,
+                color: None,
+                is_system: false,
+                sort_order: 5,
+            },
+            Folder {
+                id: "trash".to_string(),
+                account_id: "acct".to_string(),
+                remote_id: "TRASH".to_string(),
+                name: "Trash".to_string(),
+                folder_type: FolderType::Label,
+                role: Some(FolderRole::Trash),
+                parent_id: None,
+                color: None,
+                is_system: true,
+                sort_order: 6,
+            },
+            Folder {
+                id: "local-archive".to_string(),
+                account_id: "acct".to_string(),
+                remote_id: "__local_archive__".to_string(),
+                name: "Archive".to_string(),
+                folder_type: FolderType::Folder,
+                role: Some(FolderRole::Archive),
+                parent_id: None,
+                color: None,
+                is_system: true,
+                sort_order: 7,
+            },
+        ];
+
+        let label_ids = build_sync_label_ids(&folders);
+        assert_eq!(
+            label_ids,
+            vec![
+                "INBOX".to_string(),
+                "TRASH".to_string(),
+                "Label_Projects".to_string(),
+            ]
+        );
+    }
+}
