@@ -132,6 +132,19 @@ struct GraphOutgoingMessage {
     bcc_recipients: Vec<GraphOutgoingRecipient>,
     #[serde(rename = "replyTo", skip_serializing_if = "Option::is_none")]
     reply_to: Option<Vec<GraphOutgoingRecipient>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    attachments: Vec<GraphFileAttachment>,
+}
+
+#[derive(Serialize)]
+struct GraphFileAttachment {
+    #[serde(rename = "@odata.type")]
+    odata_type: String,
+    name: String,
+    #[serde(rename = "contentType")]
+    content_type: String,
+    #[serde(rename = "contentBytes")]
+    content_bytes: String,
 }
 
 #[derive(Serialize)]
@@ -406,6 +419,27 @@ impl MailTransport for OutlookProvider {
             ("Text".to_string(), message.body_text.clone())
         };
 
+        // Build attachment list
+        let mut attachments = Vec::new();
+        for path_str in &message.attachment_paths {
+            let path = std::path::Path::new(path_str);
+            let filename = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("attachment")
+                .to_string();
+            let data = std::fs::read(path).map_err(|e| {
+                PebbleError::Internal(format!("Failed to read attachment {path_str}: {e}"))
+            })?;
+            let mime = guess_outlook_mime(&filename);
+            attachments.push(GraphFileAttachment {
+                odata_type: "#microsoft.graph.fileAttachment".to_string(),
+                name: filename,
+                content_type: mime.to_string(),
+                content_bytes: base64_standard_encode_outlook(&data),
+            });
+        }
+
         let body = GraphSendMail {
             message: GraphOutgoingMessage {
                 subject: message.subject.clone(),
@@ -417,6 +451,7 @@ impl MailTransport for OutlookProvider {
                 cc_recipients: message.cc.iter().map(email_to_graph_recipient).collect(),
                 bcc_recipients: message.bcc.iter().map(email_to_graph_recipient).collect(),
                 reply_to: None,
+                attachments,
             },
         };
 
@@ -713,6 +748,50 @@ fn email_to_graph_recipient(addr: &EmailAddress) -> GraphOutgoingRecipient {
             name: addr.name.clone(),
             address: addr.address.clone(),
         },
+    }
+}
+
+fn base64_standard_encode_outlook(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((n >> 18) & 0x3F) as usize] as char);
+        out.push(ALPHABET[((n >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[((n >> 6) & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(n & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+fn guess_outlook_mime(filename: &str) -> &'static str {
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "pdf" => "application/pdf",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "txt" => "text/plain",
+        "html" | "htm" => "text/html",
+        "zip" => "application/zip",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "csv" => "text/csv",
+        "eml" => "message/rfc822",
+        _ => "application/octet-stream",
     }
 }
 

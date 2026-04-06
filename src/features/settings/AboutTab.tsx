@@ -5,7 +5,6 @@ import { invoke } from "@tauri-apps/api/core";
 import iconUrl from "/icon.png?url";
 
 const REPO = "QingJ01/Pebble";
-const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 const RELEASES_URL = `https://github.com/${REPO}/releases`;
 
 function openUrl(url: string) {
@@ -32,22 +31,19 @@ export default function AboutTab() {
   async function handleCheckUpdate() {
     setUpdate({ status: "checking" });
     try {
-      const resp = await fetch(RELEASES_API, {
-        headers: { Accept: "application/vnd.github.v3+json" },
-      });
-      if (!resp.ok) {
-        throw new Error(`GitHub API ${resp.status}`);
-      }
-      const data = await resp.json();
-      const latest = (data.tag_name as string).replace(/^v/, "");
-      if (latest === appVersion) {
-        setUpdate({ status: "latest", latestVersion: latest });
-      } else {
+      const info = await invoke<{
+        latest_version: string;
+        release_url: string;
+        is_newer: boolean;
+      }>("check_for_update", { currentVersion: appVersion });
+      if (info.is_newer) {
         setUpdate({
           status: "available",
-          latestVersion: latest,
-          releaseUrl: data.html_url as string,
+          latestVersion: info.latest_version,
+          releaseUrl: info.release_url,
         });
+      } else {
+        setUpdate({ status: "latest", latestVersion: info.latest_version });
       }
     } catch (err) {
       setUpdate({

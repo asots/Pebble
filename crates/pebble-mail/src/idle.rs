@@ -60,7 +60,14 @@ pub async fn check_for_changes_with_idle(
         {
             Ok(event) => Ok(event),
             Err(e) => {
-                warn!("IDLE failed, falling back to poll: {e}");
+                warn!("IDLE failed, attempting reconnect before fallback poll: {e}");
+                // The IDLE failure may have left the session as None (e.g.
+                // when done() fails to recover it). Reconnect so the
+                // fallback poll has a usable session.
+                if let Err(reconn_err) = provider.connect().await {
+                    warn!("Reconnect after IDLE failure also failed: {reconn_err}");
+                    return Ok(IdleEvent::Error(format!("IDLE failed and reconnect failed: {e}; {reconn_err}")));
+                }
                 check_for_changes(provider, mailbox, last_exists).await
             }
         }

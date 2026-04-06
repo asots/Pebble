@@ -51,6 +51,7 @@ pub struct OutgoingMessage {
     pub body_text: String,
     pub body_html: Option<String>,
     pub in_reply_to: Option<String>,
+    pub attachment_paths: Vec<String>,
 }
 
 pub struct StructuredQuery {

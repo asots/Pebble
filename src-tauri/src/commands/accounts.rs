@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tauri::State;
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct AddAccountRequest {
     pub email: String,
     pub display_name: String,
@@ -24,6 +24,16 @@ pub struct AddAccountRequest {
     pub proxy_host: Option<String>,
     #[serde(default)]
     pub proxy_port: Option<u16>,
+}
+
+impl std::fmt::Debug for AddAccountRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AddAccountRequest")
+            .field("email", &self.email)
+            .field("provider", &self.provider)
+            .field("password", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
 }
 
 #[tauri::command]

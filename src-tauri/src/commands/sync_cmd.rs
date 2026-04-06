@@ -48,19 +48,35 @@ async fn start_sync_inner(
     account_id: String,
     poll_interval_secs: Option<u64>,
 ) -> std::result::Result<(), PebbleError> {
-    // Check if already syncing
+    // Atomically check and reserve the slot to prevent two sync workers
+    // for the same account from starting concurrently.
     {
-        let handles = state.sync_handles.lock().await;
+        let mut handles = state.sync_handles.lock().await;
         if handles.contains_key(&account_id) {
             return Ok(());
         }
+        // Insert a placeholder with a dummy stop channel. The real handle
+        // will replace it below. If setup fails, we remove the placeholder.
+        let (placeholder_tx, _placeholder_rx) = watch::channel(false);
+        let placeholder_task = tokio::spawn(async {});
+        handles.insert(account_id.clone(), SyncHandle { stop_tx: placeholder_tx, task: placeholder_task });
     }
 
-    // Look up account to determine provider type
-    let account = state
-        .store
-        .get_account(&account_id)?
-        .ok_or_else(|| PebbleError::Internal(format!("Account not found: {account_id}")))?;
+    // Look up account to determine provider type.
+    // On any failure below, remove the placeholder we reserved above.
+    let account = match state.store.get_account(&account_id) {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            let mut handles = state.sync_handles.lock().await;
+            handles.remove(&account_id);
+            return Err(PebbleError::Internal(format!("Account not found: {account_id}")));
+        }
+        Err(e) => {
+            let mut handles = state.sync_handles.lock().await;
+            handles.remove(&account_id);
+            return Err(e);
+        }
+    };
 
     let store = Arc::clone(&state.store);
     let attachments_dir = state.attachments_dir.clone();
@@ -339,6 +355,7 @@ async fn start_sync_inner(
         }
     };
 
+    // Replace the placeholder with the real sync handle.
     {
         let mut handles = state.sync_handles.lock().await;
         handles.insert(account_id, SyncHandle { stop_tx, task });

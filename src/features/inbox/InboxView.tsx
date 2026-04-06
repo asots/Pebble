@@ -23,13 +23,14 @@ const EMPTY_THREADS: ThreadSummary[] = [];
 export default function InboxView() {
   const { t } = useTranslation();
   const { setActiveView } = useUIStore();
-  const {
-    activeFolderId,
-    activeAccountId,
-    selectedMessageId, setSelectedMessage,
-    threadView, toggleThreadView,
-    selectedThreadId, setSelectedThreadId,
-  } = useMailStore();
+  const activeFolderId = useMailStore((s) => s.activeFolderId);
+  const activeAccountId = useMailStore((s) => s.activeAccountId);
+  const selectedMessageId = useMailStore((s) => s.selectedMessageId);
+  const setSelectedMessage = useMailStore((s) => s.setSelectedMessage);
+  const threadView = useMailStore((s) => s.threadView);
+  const toggleThreadView = useMailStore((s) => s.toggleThreadView);
+  const selectedThreadId = useMailStore((s) => s.selectedThreadId);
+  const setSelectedThreadId = useMailStore((s) => s.setSelectedThreadId);
   const { data: accounts = [] } = useAccountsQuery();
   const { data: folders = [] } = useFoldersQuery(activeAccountId);
   const queryClient = useQueryClient();
@@ -176,17 +177,17 @@ export default function InboxView() {
             <MessageList
               messages={messages}
               selectedMessageId={selectedMessageId}
-              onSelectMessage={(id) => setSelectedMessage(id)}
+              onSelectMessage={setSelectedMessage}
               loading={loadingMessages}
               onLoadMore={handleLoadMore}
-              onToggleStar={(messageId, newStarred) => {
+              onToggleStar={useCallback((messageId: string, newStarred: boolean) => {
                 queryClient.setQueriesData<MessageSummary[]>(
                   { queryKey: ["messages"] },
                   (old) => old?.map((m) =>
                     m.id === messageId ? { ...m, is_starred: newStarred } : m,
                   ),
                 );
-              }}
+              }, [queryClient])}
             />
           )}
         </div>

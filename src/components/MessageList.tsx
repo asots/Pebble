@@ -39,8 +39,9 @@ export default function MessageList({
   const clearSelection = useMailStore((s) => s.clearSelection);
   const [batchLoading, setBatchLoading] = useState(false);
   const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
+  const messageIdsKey = useMemo(() => messageIds.join(","), [messageIds]);
   const { data: labelsByMessage = {} } = useQuery({
-    queryKey: ["message-labels", messageIds],
+    queryKey: ["message-labels", messageIdsKey],
     queryFn: () => getMessageLabelsBatch(messageIds),
     staleTime: 60_000,
     enabled: messageIds.length > 0,

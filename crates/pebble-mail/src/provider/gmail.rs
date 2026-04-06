@@ -3,7 +3,7 @@ use std::sync::RwLock;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::parser::{AttachmentData, AttachmentMeta};
 use pebble_core::traits::*;
@@ -918,8 +918,112 @@ fn build_raw_message(msg: &OutgoingMessage) -> Vec<u8> {
         &msg.subject,
         msg.in_reply_to.as_deref(),
     );
-    append_body(&mut raw, &msg.body_text, msg.body_html.as_deref());
+
+    if msg.attachment_paths.is_empty() {
+        append_body(&mut raw, &msg.body_text, msg.body_html.as_deref());
+    } else {
+        // multipart/mixed: body + attachments
+        const MIXED_BOUNDARY: &str = "pebble-mixed-boundary";
+        raw.push_str(&format!(
+            "Content-Type: multipart/mixed; boundary=\"{MIXED_BOUNDARY}\"\r\n\r\n"
+        ));
+
+        // Body part
+        raw.push_str(&format!("--{MIXED_BOUNDARY}\r\n"));
+        append_body(&mut raw, &msg.body_text, msg.body_html.as_deref());
+
+        // Attachment parts
+        for path_str in &msg.attachment_paths {
+            let path = std::path::Path::new(path_str);
+            let filename = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("attachment");
+            let data = match std::fs::read(path) {
+                Ok(d) => d,
+                Err(e) => {
+                    warn!("Failed to read attachment {path_str}: {e}, skipping");
+                    continue;
+                }
+            };
+            let encoded = base64_standard_encode(&data);
+            let content_type = guess_mime_type(filename);
+
+            raw.push_str(&format!("--{MIXED_BOUNDARY}\r\n"));
+            raw.push_str(&format!(
+                "Content-Type: {content_type}; name=\"{filename}\"\r\n"
+            ));
+            raw.push_str("Content-Transfer-Encoding: base64\r\n");
+            raw.push_str(&format!(
+                "Content-Disposition: attachment; filename=\"{filename}\"\r\n\r\n"
+            ));
+            // Wrap base64 at 76 chars per line per RFC 2045
+            for chunk in encoded.as_bytes().chunks(76) {
+                raw.push_str(std::str::from_utf8(chunk).unwrap_or(""));
+                raw.push_str("\r\n");
+            }
+        }
+        raw.push_str(&format!("--{MIXED_BOUNDARY}--\r\n"));
+    }
+
     raw.into_bytes()
+}
+
+fn base64_standard_encode(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((n >> 18) & 0x3F) as usize] as char);
+        out.push(ALPHABET[((n >> 12) & 0x3F) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(ALPHABET[((n >> 6) & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(ALPHABET[(n & 0x3F) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+fn guess_mime_type(filename: &str) -> &'static str {
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "pdf" => "application/pdf",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "txt" => "text/plain",
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" => "application/javascript",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "zip" => "application/zip",
+        "gz" | "gzip" => "application/gzip",
+        "tar" => "application/x-tar",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "csv" => "text/csv",
+        "mp3" => "audio/mpeg",
+        "mp4" => "video/mp4",
+        "wav" => "audio/wav",
+        "eml" => "message/rfc822",
+        _ => "application/octet-stream",
+    }
 }
 
 fn build_draft_raw(draft: &DraftMessage) -> Vec<u8> {
@@ -1290,6 +1394,7 @@ mod tests {
             body_text: "Hello".to_string(),
             body_html: None,
             in_reply_to: None,
+            attachment_paths: vec![],
         };
         let raw = String::from_utf8(build_raw_message(&msg)).unwrap();
         assert!(raw.contains("To: test@example.com"));
@@ -1315,6 +1420,7 @@ mod tests {
             body_text: "Reply body".to_string(),
             body_html: None,
             in_reply_to: Some("<msg123@example.com>".to_string()),
+            attachment_paths: vec![],
         };
         let raw = String::from_utf8(build_raw_message(&msg)).unwrap();
         assert!(raw.contains("Cc: bob@example.com"));
@@ -1337,6 +1443,7 @@ mod tests {
             body_text: "Plain text body".to_string(),
             body_html: Some("<p><strong>HTML</strong> body</p>".to_string()),
             in_reply_to: None,
+            attachment_paths: vec![],
         };
 
         let raw = String::from_utf8(build_raw_message(&msg)).unwrap();

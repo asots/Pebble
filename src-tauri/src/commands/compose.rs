@@ -38,17 +38,6 @@ pub async fn send_email(
         .ok_or_else(|| PebbleError::Internal(format!("Account not found: {account_id}")))?;
 
     if matches!(account.provider, ProviderType::Gmail | ProviderType::Outlook) {
-        if !attachment_paths.is_empty() {
-            tracing::warn!(
-                "Attachments are not yet supported for {} provider, {} attachment(s) will be ignored",
-                match account.provider {
-                    ProviderType::Gmail => "Gmail",
-                    ProviderType::Outlook => "Outlook",
-                    _ => "unknown",
-                },
-                attachment_paths.len(),
-            );
-        }
         let provider_name = match account.provider {
             ProviderType::Gmail => "gmail",
             ProviderType::Outlook => "outlook",
@@ -63,6 +52,7 @@ pub async fn send_email(
             body_text,
             body_html,
             in_reply_to,
+            attachment_paths: attachment_paths.clone(),
         };
         return match account.provider {
             ProviderType::Gmail => {

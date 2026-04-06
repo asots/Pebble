@@ -5,7 +5,7 @@ mod state;
 
 use state::AppState;
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 fn get_db_path(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let app_data = app
@@ -78,13 +78,6 @@ pub fn run() {
                 }
             };
 
-            if needs_rebuild {
-                match commands::sync_cmd::do_reindex(&store, &search) {
-                    Ok(n) => tracing::info!("Reindexed {n} messages"),
-                    Err(e) => tracing::error!("Failed to reindex: {e}"),
-                }
-            }
-
             let crypto = pebble_crypto::CryptoService::init()?;
             tracing::info!("Crypto service initialized successfully");
 
@@ -108,6 +101,23 @@ pub fn run() {
                 snooze_stop_rx,
             ));
 
+            // Rebuild search index in background if needed (non-blocking)
+            if needs_rebuild {
+                let store_for_reindex = state.store.clone();
+                let search_for_reindex = state.search.clone();
+                let app_for_reindex = app_handle.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    tracing::info!("Starting background search index rebuild...");
+                    match commands::sync_cmd::do_reindex(&store_for_reindex, &search_for_reindex) {
+                        Ok(n) => {
+                            tracing::info!("Background reindex complete: {n} messages indexed");
+                            let _ = app_for_reindex.emit("search:reindex-complete", n);
+                        }
+                        Err(e) => tracing::error!("Background reindex failed: {e}"),
+                    }
+                });
+            }
+
             // Auto-resume sync for all existing accounts
             tauri::async_runtime::spawn(async move {
                 commands::sync_cmd::resume_all_syncs(app_handle).await;
@@ -117,6 +127,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::health::health_check,
+            commands::health::check_for_update,
             commands::health::open_external_url,
             commands::accounts::add_account,
             commands::accounts::update_account,

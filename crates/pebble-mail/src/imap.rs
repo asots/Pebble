@@ -39,7 +39,7 @@ pub struct ProxyConfig {
 }
 
 /// Configuration for an IMAP connection.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct ImapConfig {
     pub host: String,
     pub port: u16,
@@ -48,6 +48,19 @@ pub struct ImapConfig {
     pub security: ConnectionSecurity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<ProxyConfig>,
+}
+
+impl std::fmt::Debug for ImapConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImapConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("security", &self.security)
+            .field("proxy", &self.proxy)
+            .finish()
+    }
 }
 
 // Custom Deserialize to handle legacy `use_tls: bool` configs.
@@ -88,13 +101,25 @@ impl<'de> serde::Deserialize<'de> for ImapConfig {
 }
 
 /// Configuration for an SMTP connection.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct SmtpConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
     pub password: String,
     pub security: ConnectionSecurity,
+}
+
+impl std::fmt::Debug for SmtpConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SmtpConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("security", &self.security)
+            .finish()
+    }
 }
 
 // Custom Deserialize to handle legacy `use_tls: bool` configs.

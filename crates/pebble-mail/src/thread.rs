@@ -11,7 +11,15 @@ pub fn normalize_subject(subject: &str) -> String {
         let mut matched = false;
         for prefix in &prefixes {
             if lower.starts_with(prefix) {
-                s = s[prefix.len()..].trim().to_string();
+                // Count chars in the prefix, then advance by the same number of
+                // chars in the *original* string to avoid byte-boundary panics
+                // when to_lowercase() changes byte length.
+                let char_count = prefix.chars().count();
+                let byte_offset = s.char_indices()
+                    .nth(char_count)
+                    .map(|(i, _)| i)
+                    .unwrap_or(s.len());
+                s = s[byte_offset..].trim().to_string();
                 matched = true;
                 break;
             }
@@ -124,6 +132,9 @@ mod tests {
         assert_eq!(normalize_subject("转发: Hello"), "Hello");
         assert_eq!(normalize_subject("Hello"), "Hello");
         assert_eq!(normalize_subject("  Hello  "), "Hello");
+        // Edge case: multi-byte char whose lowercase form has different byte length
+        assert_eq!(normalize_subject("\u{0130}re: Test"), "\u{0130}re: Test");
+        assert_eq!(normalize_subject("Re: \u{0130}test"), "\u{0130}test");
     }
 
     #[test]
