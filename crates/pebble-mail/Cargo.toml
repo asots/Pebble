@@ -12,7 +12,13 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 async-imap = { workspace = true }
-async-native-tls = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls = { workspace = true }
+webpki-roots = { workspace = true }
 mail-parser = { workspace = true }
+async-trait = "0.1"
 futures = "0.3"
+utf7-imap = "0.3"
 lettre = { workspace = true }
+reqwest = { workspace = true }
+tokio-socks = { workspace = true }

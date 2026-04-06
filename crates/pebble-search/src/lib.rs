@@ -6,27 +6,50 @@ use std::sync::Mutex;
 use pebble_core::{Message, PebbleError, Result};
 use pebble_core::traits::SearchHit;
 use tantivy::collector::TopDocs;
-use tantivy::query::QueryParser;
+use tantivy::query::{BooleanQuery, Occur, Query, QueryParser, RangeQuery, TermQuery};
 use tantivy::schema::Value;
-use tantivy::{DateTime, Index, IndexWriter, ReloadPolicy, TantivyDocument};
+use tantivy::{DateTime, Index, IndexWriter, ReloadPolicy, Term, TantivyDocument};
 
-use schema::build_schema;
+use schema::{build_schema, SearchSchema};
+
+pub struct AdvancedSearchParams<'a> {
+    pub text: Option<&'a str>,
+    pub from: Option<&'a str>,
+    pub to: Option<&'a str>,
+    pub subject: Option<&'a str>,
+    pub date_from: Option<i64>,
+    pub date_to: Option<i64>,
+    pub has_attachment: Option<bool>,
+    pub folder_id: Option<&'a str>,
+    pub limit: usize,
+}
 
 pub struct TantivySearch {
     index: Index,
     writer: Mutex<IndexWriter>,
+    schema: SearchSchema,
+    reader: tantivy::IndexReader,
 }
 
 impl TantivySearch {
     pub fn open(index_path: &Path) -> Result<Self> {
         let ss = build_schema();
         let index = if index_path.exists() {
-            Index::open_in_dir(index_path)
-                .map_err(|e| PebbleError::Storage(format!("Failed to open index: {e}")))?
+            match Index::open_in_dir(index_path) {
+                Ok(idx) => idx,
+                Err(_) => {
+                    // Directory exists but index is corrupted/empty — recreate
+                    let _ = std::fs::remove_dir_all(index_path);
+                    std::fs::create_dir_all(index_path)
+                        .map_err(|e| PebbleError::Storage(format!("Failed to recreate index dir: {e}")))?;
+                    Index::create_in_dir(index_path, ss.schema.clone())
+                        .map_err(|e| PebbleError::Storage(format!("Failed to recreate index: {e}")))?
+                }
+            }
         } else {
             std::fs::create_dir_all(index_path)
                 .map_err(|e| PebbleError::Storage(format!("Failed to create index dir: {e}")))?;
-            Index::create_in_dir(index_path, ss.schema)
+            Index::create_in_dir(index_path, ss.schema.clone())
                 .map_err(|e| PebbleError::Storage(format!("Failed to create index: {e}")))?
         };
 
@@ -34,28 +57,44 @@ impl TantivySearch {
             .writer(50_000_000)
             .map_err(|e| PebbleError::Internal(format!("Failed to create writer: {e}")))?;
 
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::OnCommitWithDelay)
+            .try_into()
+            .map_err(|e| PebbleError::Internal(format!("Failed to create reader: {e}")))?;
+
         Ok(Self {
             index,
             writer: Mutex::new(writer),
+            schema: ss,
+            reader,
         })
     }
 
     pub fn open_in_memory() -> Result<Self> {
         let ss = build_schema();
-        let index = Index::create_in_ram(ss.schema);
+        let index = Index::create_in_ram(ss.schema.clone());
 
         let writer = index
             .writer(15_000_000)
             .map_err(|e| PebbleError::Internal(format!("Failed to create writer: {e}")))?;
 
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::OnCommitWithDelay)
+            .try_into()
+            .map_err(|e| PebbleError::Internal(format!("Failed to create reader: {e}")))?;
+
         Ok(Self {
             index,
             writer: Mutex::new(writer),
+            schema: ss,
+            reader,
         })
     }
 
     pub fn index_message(&self, msg: &Message, folder_ids: &[String]) -> Result<()> {
-        let ss = build_schema();
+        let ss = &self.schema;
         let mut doc = TantivyDocument::default();
 
         doc.add_text(ss.message_id, &msg.id);
@@ -110,20 +149,18 @@ impl TantivySearch {
             .commit()
             .map_err(|e| PebbleError::Internal(format!("Failed to commit: {e}")))?;
 
+        // Force the cached reader to pick up the newly committed segments immediately
+        self.reader
+            .reload()
+            .map_err(|e| PebbleError::Internal(format!("Failed to reload reader: {e}")))?;
+
         Ok(())
     }
 
     pub fn search(&self, query_text: &str, limit: usize) -> Result<Vec<SearchHit>> {
-        let ss = build_schema();
+        let ss = &self.schema;
 
-        let reader = self
-            .index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::OnCommitWithDelay)
-            .try_into()
-            .map_err(|e| PebbleError::Internal(format!("Failed to create reader: {e}")))?;
-
-        let searcher = reader.searcher();
+        let searcher = self.reader.searcher();
 
         let query_parser = QueryParser::for_index(
             &self.index,
@@ -136,6 +173,129 @@ impl TantivySearch {
 
         let top_docs = searcher
             .search(&query, &TopDocs::with_limit(limit))
+            .map_err(|e| PebbleError::Internal(format!("Search failed: {e}")))?;
+
+        let mut hits = Vec::with_capacity(top_docs.len());
+        for (score, doc_addr) in top_docs {
+            let doc: TantivyDocument = searcher
+                .doc(doc_addr)
+                .map_err(|e| PebbleError::Internal(format!("Failed to retrieve doc: {e}")))?;
+
+            let message_id = doc
+                .get_first(ss.message_id)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let snippet = doc
+                .get_first(ss.subject)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            hits.push(SearchHit {
+                message_id,
+                score,
+                snippet,
+            });
+        }
+
+        Ok(hits)
+    }
+
+    pub fn advanced_search(
+        &self,
+        params: AdvancedSearchParams<'_>,
+    ) -> Result<Vec<SearchHit>> {
+        let AdvancedSearchParams { text, from, to, subject, date_from, date_to, has_attachment, folder_id, limit } = params;
+        let ss = &self.schema;
+
+        let searcher = self.reader.searcher();
+
+        let mut sub_queries: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+
+        // Helper: parse a text query against specific fields
+        let parse_text_query = |fields: Vec<tantivy::schema::Field>, q: &str| -> Result<Box<dyn Query>> {
+            let parser = QueryParser::for_index(&self.index, fields);
+            parser
+                .parse_query(q)
+                .map_err(|e| PebbleError::Internal(format!("Failed to parse query: {e}")))
+        };
+
+        if let Some(q) = text {
+            if !q.is_empty() {
+                let query = parse_text_query(
+                    vec![ss.subject, ss.body_text, ss.from_address, ss.from_name],
+                    q,
+                )?;
+                sub_queries.push((Occur::Must, query));
+            }
+        }
+
+        if let Some(q) = from {
+            if !q.is_empty() {
+                let query = parse_text_query(vec![ss.from_address, ss.from_name], q)?;
+                sub_queries.push((Occur::Must, query));
+            }
+        }
+
+        if let Some(q) = to {
+            if !q.is_empty() {
+                let query = parse_text_query(vec![ss.to_addresses], q)?;
+                sub_queries.push((Occur::Must, query));
+            }
+        }
+
+        if let Some(q) = subject {
+            if !q.is_empty() {
+                let query = parse_text_query(vec![ss.subject], q)?;
+                sub_queries.push((Occur::Must, query));
+            }
+        }
+
+        // Date range filter
+        if date_from.is_some() || date_to.is_some() {
+            let lower = date_from
+                .map(DateTime::from_timestamp_secs)
+                .unwrap_or(DateTime::from_timestamp_secs(0));
+            let upper = date_to
+                .map(DateTime::from_timestamp_secs)
+                .unwrap_or(DateTime::from_timestamp_secs(i64::MAX / 1_000_000)); // far future
+
+            let range_query = RangeQuery::new_date_bounds(
+                "date".to_string(),
+                std::ops::Bound::Included(lower),
+                std::ops::Bound::Included(upper),
+            );
+            sub_queries.push((Occur::Must, Box::new(range_query)));
+        }
+
+        // Has attachment filter
+        if let Some(has_att) = has_attachment {
+            let val = if has_att { "true" } else { "false" };
+            let term = Term::from_field_text(ss.has_attachment, val);
+            let term_query = TermQuery::new(term, tantivy::schema::IndexRecordOption::Basic);
+            sub_queries.push((Occur::Must, Box::new(term_query)));
+        }
+
+        // Folder filter
+        if let Some(fid) = folder_id {
+            if !fid.is_empty() {
+                let term = Term::from_field_text(ss.folder_id, fid);
+                let term_query = TermQuery::new(term, tantivy::schema::IndexRecordOption::Basic);
+                sub_queries.push((Occur::Must, Box::new(term_query)));
+            }
+        }
+
+        // If no sub-queries, return empty
+        if sub_queries.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let bool_query = BooleanQuery::new(sub_queries);
+
+        let top_docs = searcher
+            .search(&bool_query, &TopDocs::with_limit(limit))
             .map_err(|e| PebbleError::Internal(format!("Search failed: {e}")))?;
 
         let mut hits = Vec::with_capacity(top_docs.len());
@@ -179,6 +339,11 @@ impl TantivySearch {
         writer
             .commit()
             .map_err(|e| PebbleError::Internal(format!("Failed to commit after clear: {e}")))?;
+
+        drop(writer); // release lock before reloading reader
+        self.reader
+            .reload()
+            .map_err(|e| PebbleError::Internal(format!("Failed to reload reader: {e}")))?;
 
         Ok(())
     }

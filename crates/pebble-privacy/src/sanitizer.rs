@@ -127,6 +127,26 @@ fn build_sanitizer(_mode: &PrivacyMode) -> Builder<'static> {
     // Add rel="noopener noreferrer" to all links
     builder.link_rel(Some("noopener noreferrer"));
 
+    // Filter dangerous CSS values in style attributes
+    builder.attribute_filter(|_element, attribute, value| {
+        if attribute == "style" {
+            let lower = value.to_lowercase();
+            let dangerous = [
+                "url(", "expression(", "behavior:", "binding:",
+                "-moz-binding", "javascript:", "vbscript:",
+                "position:fixed", "position: fixed",
+                "position:absolute", "position: absolute",
+            ];
+            if dangerous.iter().any(|p| lower.contains(p)) {
+                None
+            } else {
+                Some(value.into())
+            }
+        } else {
+            Some(value.into())
+        }
+    });
+
     builder
 }
 
@@ -210,6 +230,11 @@ fn process_img_tag(
     trackers_blocked: &mut Vec<TrackerInfo>,
     images_blocked: &mut u32,
 ) -> ImgAction {
+    // Off mode: no blocking at all
+    if matches!(mode, PrivacyMode::Off) {
+        return ImgAction::Keep;
+    }
+
     // Tracking pixels are always blocked
     if is_tracking_pixel(width, height) {
         let domain = src
@@ -242,7 +267,7 @@ fn process_img_tag(
                     *images_blocked += 1;
                     return ImgAction::BlockedPlaceholder;
                 }
-                PrivacyMode::LoadOnce | PrivacyMode::TrustSender(_) => {
+                PrivacyMode::LoadOnce | PrivacyMode::TrustSender(_) | PrivacyMode::Off => {
                     return ImgAction::Keep;
                 }
             }

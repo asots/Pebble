@@ -7,6 +7,15 @@ pub struct AttachmentMeta {
     pub filename: String,
     pub mime_type: String,
     pub size: usize,
+    pub content_id: Option<String>,
+    pub is_inline: bool,
+}
+
+/// Attachment metadata together with the raw binary content.
+#[derive(Debug, Clone)]
+pub struct AttachmentData {
+    pub meta: AttachmentMeta,
+    pub data: Vec<u8>,
 }
 
 /// The result of parsing a raw email message.
@@ -26,7 +35,7 @@ pub struct ParsedMessage {
     pub body_html: String,
     pub snippet: String,
     pub has_attachments: bool,
-    pub attachments: Vec<AttachmentMeta>,
+    pub attachments: Vec<AttachmentData>,
 }
 
 /// Convert a mail-parser `Address` into a `Vec<EmailAddress>`.
@@ -62,8 +71,9 @@ fn extract_id_list(hv: &HeaderValue<'_>) -> Option<String> {
 /// Build a snippet from body text: first 200 chars, whitespace normalized.
 fn make_snippet(body_text: &str) -> String {
     let normalized: String = body_text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if normalized.len() > 200 {
-        format!("{}...", &normalized[..200])
+    if normalized.chars().count() > 200 {
+        let truncated: String = normalized.chars().take(200).collect();
+        format!("{truncated}...")
     } else {
         normalized
     }
@@ -124,7 +134,7 @@ pub fn parse_raw_email(raw: &[u8]) -> Result<ParsedMessage> {
     let snippet = make_snippet(&body_text);
 
     // Attachments
-    let attachments: Vec<AttachmentMeta> = message
+    let attachments: Vec<AttachmentData> = message
         .attachments()
         .map(|part| {
             let filename = part
@@ -142,10 +152,21 @@ pub fn parse_raw_email(raw: &[u8]) -> Result<ParsedMessage> {
                 })
                 .unwrap_or_else(|| "application/octet-stream".to_string());
             let size = part.len();
-            AttachmentMeta {
-                filename,
-                mime_type,
-                size,
+            let content_id = part.content_id().map(|s| s.to_string());
+            let is_inline = part
+                .content_disposition()
+                .map(|d| d.ctype() == "inline")
+                .unwrap_or(false);
+            let data = part.contents().to_vec();
+            AttachmentData {
+                meta: AttachmentMeta {
+                    filename,
+                    mime_type,
+                    size,
+                    content_id,
+                    is_inline,
+                },
+                data,
             }
         })
         .collect();

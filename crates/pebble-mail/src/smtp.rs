@@ -1,3 +1,4 @@
+use crate::imap::ConnectionSecurity;
 use lettre::message::{header::ContentType, Mailbox, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{SmtpTransport, Transport};
@@ -7,16 +8,16 @@ pub struct SmtpSender {
     host: String,
     port: u16,
     credentials: Credentials,
-    use_tls: bool,
+    security: ConnectionSecurity,
 }
 
 impl SmtpSender {
-    pub fn new(host: String, port: u16, username: String, password: String, use_tls: bool) -> Self {
+    pub fn new(host: String, port: u16, username: String, password: String, security: ConnectionSecurity) -> Self {
         Self {
             host,
             port,
             credentials: Credentials::new(username, password),
-            use_tls,
+            security,
         }
     }
 
@@ -26,6 +27,7 @@ impl SmtpSender {
         from: &str,
         to: &[String],
         cc: &[String],
+        bcc: &[String],
         subject: &str,
         body_text: &str,
         body_html: Option<&str>,
@@ -57,6 +59,13 @@ impl SmtpSender {
             builder = builder.cc(mailbox);
         }
 
+        for addr in bcc {
+            let mailbox: Mailbox = addr
+                .parse()
+                .map_err(|e| PebbleError::Internal(format!("Invalid bcc address '{addr}': {e}")))?;
+            builder = builder.bcc(mailbox);
+        }
+
         if let Some(reply_to) = in_reply_to {
             builder = builder.in_reply_to(reply_to.to_string());
         }
@@ -83,17 +92,27 @@ impl SmtpSender {
                 .map_err(|e| PebbleError::Internal(format!("Failed to build email: {e}")))?
         };
 
-        let transport = if self.use_tls {
-            SmtpTransport::relay(&self.host)
-                .map_err(|e| PebbleError::Network(format!("SMTP relay error: {e}")))?
-                .port(self.port)
-                .credentials(self.credentials.clone())
-                .build()
-        } else {
-            SmtpTransport::builder_dangerous(&self.host)
-                .port(self.port)
-                .credentials(self.credentials.clone())
-                .build()
+        let transport = match self.security {
+            ConnectionSecurity::Tls => {
+                SmtpTransport::relay(&self.host)
+                    .map_err(|e| PebbleError::Network(format!("SMTP relay error: {e}")))?
+                    .port(self.port)
+                    .credentials(self.credentials.clone())
+                    .build()
+            }
+            ConnectionSecurity::StartTls => {
+                SmtpTransport::starttls_relay(&self.host)
+                    .map_err(|e| PebbleError::Network(format!("SMTP STARTTLS error: {e}")))?
+                    .port(self.port)
+                    .credentials(self.credentials.clone())
+                    .build()
+            }
+            ConnectionSecurity::Plain => {
+                SmtpTransport::builder_dangerous(&self.host)
+                    .port(self.port)
+                    .credentials(self.credentials.clone())
+                    .build()
+            }
         };
 
         transport

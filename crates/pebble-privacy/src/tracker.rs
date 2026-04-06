@@ -19,7 +19,7 @@ const KNOWN_TRACKERS: &[&str] = &[
     "boomeranggmail.com",
     "mixmax.com",
     "superhuman.com",
-    "facebook.com/tr",
+    "facebook.com",
     "google-analytics.com",
     "doubleclick.net",
     "pixel.wp.com",

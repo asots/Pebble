@@ -4,22 +4,21 @@ use pebble_core::{Message, new_id};
 /// Handles Re:, Fwd:, Fw:, 回复:, 转发: (case-insensitive).
 pub fn normalize_subject(subject: &str) -> String {
     let mut s = subject.trim().to_string();
+    let prefixes = ["re:", "fwd:", "fw:", "回复:", "转发:"];
     loop {
         let lower = s.to_lowercase();
-        let stripped = lower
-            .strip_prefix("re:")
-            .or_else(|| lower.strip_prefix("fwd:"))
-            .or_else(|| lower.strip_prefix("fw:"))
-            .or_else(|| lower.strip_prefix("回复:"))
-            .or_else(|| lower.strip_prefix("转发:"));
-
-        match stripped {
-            Some(rest) => {
-                // Advance s by the bytes consumed by the prefix
-                let consumed = s.len() - rest.len();
-                s = s[consumed..].trim().to_string();
+        let mut matched = false;
+        for prefix in &prefixes {
+            if lower.starts_with(prefix) {
+                // Safe: prefix bytes are identical in original and lowered form
+                // (all prefixes are ASCII or CJK characters invariant under lowercasing)
+                s = s[prefix.len()..].trim().to_string();
+                matched = true;
+                break;
             }
-            None => break,
+        }
+        if !matched {
+            break;
         }
     }
     s
