@@ -10,11 +10,18 @@ const SUCCESS_HTML: &str = r#"<!DOCTYPE html>
 <p>You can close this tab and return to Pebble.</p>
 </body></html>"#;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OAuthRedirect {
+    pub code: String,
+    pub state: String,
+}
+
 /// Listen on `127.0.0.1:{port}` for the OAuth redirect callback.
 ///
 /// Accepts a single connection, parses the `?code=` query parameter from the
-/// request, sends a friendly HTML response, and returns the authorization code.
-pub async fn wait_for_redirect(port: u16) -> Result<String, OAuthError> {
+/// request, sends a friendly HTML response, and returns the authorization code
+/// together with the callback state.
+pub async fn wait_for_redirect(port: u16) -> Result<OAuthRedirect, OAuthError> {
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
     tracing::debug!("OAuth redirect listener started on port {}", port);
 
@@ -49,6 +56,12 @@ pub async fn wait_for_redirect(port: u16) -> Result<String, OAuthError> {
             OAuthError::Redirect(format!("Authorization denied or missing code: {}", error))
         })?;
 
+    let state = url
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.into_owned())
+        .ok_or_else(|| OAuthError::Redirect("Authorization callback missing state".into()))?;
+
     // Send HTTP response
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -59,7 +72,7 @@ pub async fn wait_for_redirect(port: u16) -> Result<String, OAuthError> {
     stream.flush().await?;
 
     tracing::debug!("OAuth redirect received authorization code");
-    Ok(code)
+    Ok(OAuthRedirect { code, state })
 }
 
 #[cfg(test)]
@@ -67,7 +80,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn redirect_extracts_code() {
+    async fn redirect_extracts_code_and_state() {
         // Bind to port 0 to get a random available port
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -87,8 +100,9 @@ mod tests {
             .await
             .unwrap();
 
-        let code = handle.await.unwrap().unwrap();
-        assert_eq!(code, "test_code_123");
+        let redirect = handle.await.unwrap().unwrap();
+        assert_eq!(redirect.code, "test_code_123");
+        assert_eq!(redirect.state, "xyz");
     }
 
     #[tokio::test]
@@ -105,6 +119,28 @@ mod tests {
             .await
             .unwrap();
         let request = "GET /callback?error=access_denied HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        tokio::io::AsyncWriteExt::write_all(&mut stream, request.as_bytes())
+            .await
+            .unwrap();
+
+        let result = handle.await.unwrap();
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn redirect_returns_error_on_missing_state() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let handle = tokio::spawn(async move { wait_for_redirect(port).await });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+            .await
+            .unwrap();
+        let request = "GET /callback?code=test_code_123 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
         tokio::io::AsyncWriteExt::write_all(&mut stream, request.as_bytes())
             .await
             .unwrap();

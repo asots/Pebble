@@ -3,6 +3,7 @@ mod redirect;
 mod tokens;
 
 pub use pkce::PkceState;
+pub use redirect::OAuthRedirect;
 pub use tokens::TokenPair;
 
 use oauth2::{
@@ -160,8 +161,8 @@ impl OAuthManager {
     }
 
     /// Wait for the OAuth redirect on the configured port and return the
-    /// authorization code.
-    pub async fn wait_for_redirect(&self) -> Result<String, OAuthError> {
+    /// authorization code together with the callback state.
+    pub async fn wait_for_redirect(&self) -> Result<OAuthRedirect, OAuthError> {
         redirect::wait_for_redirect(self.config.redirect_port).await
     }
 }

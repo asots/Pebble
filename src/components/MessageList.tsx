@@ -54,6 +54,8 @@ export default function MessageList({
   return (
     <div
       ref={parentRef}
+      role="listbox"
+      aria-label={t("inbox.messageList", "Messages")}
       style={{
         height: "100%",
         overflow: "auto",

@@ -15,6 +15,7 @@ import { useMailStore } from "@/stores/mail.store";
 import { useAccountsQuery } from "@/hooks/queries";
 import { useSendEmailMutation } from "@/hooks/mutations";
 import ContactAutocomplete from "@/components/ContactAutocomplete";
+import { hasComposeDraft } from "./compose-draft";
 import type { Editor } from "@tiptap/react";
 
 type EditorMode = "rich" | "markdown" | "html";
@@ -83,14 +84,23 @@ export default function ComposeView() {
   // Editor mode: rich (WYSIWYG), markdown (raw text), html (source)
   const [editorMode, setEditorMode] = useState<EditorMode>("rich");
   const [rawSource, setRawSource] = useState("");
+  const [richTextHtml, setRichTextHtml] = useState("");
   const [htmlPreview, setHtmlPreview] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Track dirty state for leave-protection
   useEffect(() => {
-    const hasDraft = to.length > 0 || subject.length > 0 || rawSource.length > 0;
-    useUIStore.getState().setComposeDirty(hasDraft);
-  }, [to, subject, rawSource]);
+    useUIStore.getState().setComposeDirty(
+      hasComposeDraft({
+        to,
+        cc,
+        bcc,
+        subject,
+        rawSource,
+        richTextHtml,
+      }),
+    );
+  }, [bcc, cc, rawSource, richTextHtml, subject, to]);
 
   useEffect(() => {
     if (!sendError) return;
@@ -152,6 +162,23 @@ export default function ComposeView() {
       editor.commands.setContent(editorContent);
     }
   }, [editor, editorContent]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    const syncRichTextHtml = () => {
+      setRichTextHtml(editor.getHTML());
+    };
+
+    syncRichTextHtml();
+    editor.on("update", syncRichTextHtml);
+
+    return () => {
+      editor.off("update", syncRichTextHtml);
+    };
+  }, [editor]);
 
   // Switch between modes, syncing content
   function switchMode(newMode: EditorMode) {
@@ -228,7 +255,10 @@ export default function ComposeView() {
         inReplyTo: inReplyTo || undefined,
       },
       {
-        onSuccess: () => closeCompose(),
+        onSuccess: () => {
+          useUIStore.getState().setComposeDirty(false);
+          closeCompose();
+        },
         onError: (e) => {
           const msg = e instanceof Error ? e.message : String(e);
           setSendError(msg || t("compose.sendError", "Failed to send"));
@@ -291,7 +321,7 @@ export default function ComposeView() {
 
       {/* Error banner */}
       {sendError && (
-        <div style={{
+        <div role="alert" aria-live="assertive" style={{
           display: "flex", alignItems: "center", gap: "8px",
           padding: "8px 20px",
           backgroundColor: "var(--color-error-bg, #fef2f2)",
@@ -363,11 +393,11 @@ export default function ComposeView() {
           {/* Subject */}
           <div style={fieldRowStyle}>
             <span style={fieldLabelStyle}>{t("compose.subject", "Subject")}</span>
-            <input
-              type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
-              placeholder={t("compose.subject", "Subject")}
-              style={{ flex: 1, padding: "8px 0", border: "none", outline: "none", backgroundColor: "transparent", fontSize: "13px", color: "var(--color-text-primary)" }}
-            />
+              <input
+                type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
+                placeholder={t("compose.subject", "Subject")}
+                style={{ flex: 1, padding: "8px 0", border: "none", backgroundColor: "transparent", fontSize: "13px", color: "var(--color-text-primary)" }}
+              />
           </div>
 
           {/* Mode switcher + Toolbar */}
@@ -433,7 +463,7 @@ export default function ComposeView() {
                   spellCheck={false}
                   style={{
                     width: "50%", height: "100%", minHeight: "300px",
-                    padding: "16px 20px", border: "none", outline: "none", resize: "none",
+                    padding: "16px 20px", border: "none", resize: "none",
                     backgroundColor: "transparent",
                     fontSize: "13px", lineHeight: 1.6,
                     color: "var(--color-text-primary)",
@@ -462,7 +492,7 @@ export default function ComposeView() {
                 spellCheck={editorMode === "markdown"}
                 style={{
                   width: "100%", height: "100%", minHeight: "300px",
-                  padding: "16px 60px", border: "none", outline: "none", resize: "none",
+                  padding: "16px 60px", border: "none", resize: "none",
                   backgroundColor: "transparent",
                   fontSize: "13px", lineHeight: 1.6,
                   color: "var(--color-text-primary)",

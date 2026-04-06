@@ -6,6 +6,22 @@ export type Theme = "light" | "dark" | "system";
 export type Language = "en" | "zh";
 export type NetworkStatus = "online" | "offline";
 
+function getComposeResetState() {
+  return {
+    composeMode: null,
+    composeReplyTo: null,
+    composeDirty: false,
+  };
+}
+
+export function canLeaveCompose(state: Pick<UIState, "activeView" | "composeDirty">): boolean {
+  if (state.activeView !== "compose" || !state.composeDirty) {
+    return true;
+  }
+
+  return globalThis.confirm("You have an unsaved draft. Discard and leave?");
+}
+
 interface UIState {
   sidebarCollapsed: boolean;
   activeView: ActiveView;
@@ -51,12 +67,20 @@ export const useUIStore = create<UIState>((set) => ({
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setActiveView: (view) => {
     const state = useUIStore.getState();
-    // Guard: if leaving compose with unsaved content, confirm first
-    if (state.activeView === "compose" && state.composeDirty && view !== "compose") {
-      // eslint-disable-next-line no-restricted-globals
-      if (!confirm("You have an unsaved draft. Discard and leave?")) return;
+    if (state.activeView === view) {
+      return;
     }
-    set({ activeView: view, ...(state.activeView === "compose" ? { composeDirty: false } : {}) });
+
+    if (state.activeView === "compose" && view !== "compose") {
+      if (!canLeaveCompose(state)) {
+        return;
+      }
+
+      set({ activeView: view, ...getComposeResetState() });
+      return;
+    }
+
+    set({ activeView: view });
   },
   setTheme: (theme) => {
     localStorage.setItem("pebble-theme", theme);
@@ -76,14 +100,23 @@ export const useUIStore = create<UIState>((set) => ({
       activeView: "compose" as ActiveView,
       composeMode: mode,
       composeReplyTo: replyTo,
-    })),
-  closeCompose: () =>
-    set((state) => ({
-      activeView: state.previousView,
-      composeMode: null,
-      composeReplyTo: null,
       composeDirty: false,
     })),
+  closeCompose: () => {
+    const state = useUIStore.getState();
+    if (state.activeView !== "compose") {
+      return;
+    }
+
+    if (!canLeaveCompose(state)) {
+      return;
+    }
+
+    set((current) => ({
+      activeView: current.previousView,
+      ...getComposeResetState(),
+    }));
+  },
   pollInterval: Number(localStorage.getItem("pebble-poll-interval")) || 15,
   setPollInterval: (secs) => {
     localStorage.setItem("pebble-poll-interval", String(secs));

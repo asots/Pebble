@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
@@ -54,6 +54,7 @@ interface Props {
 export default function AccountSetup({ onClose }: Props) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const emailInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState<AddAccountRequest>({
     email: "",
@@ -73,6 +74,27 @@ export default function AccountSetup({ onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    emailInputRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [onClose]);
 
   async function handleTestConnection() {
     setTestResult(null);
@@ -167,7 +189,6 @@ export default function AccountSetup({ onClose }: Props) {
     backgroundColor: "var(--color-bg)",
     color: "var(--color-text-primary)",
     fontSize: "13px",
-    outline: "none",
     boxSizing: "border-box",
   };
 
@@ -186,6 +207,9 @@ export default function AccountSetup({ onClose }: Props) {
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="account-setup-title"
       style={{
         position: "fixed",
         inset: 0,
@@ -222,6 +246,7 @@ export default function AccountSetup({ onClose }: Props) {
           }}
         >
           <h2
+            id="account-setup-title"
             style={{
               margin: 0,
               fontSize: "15px",
@@ -312,10 +337,11 @@ export default function AccountSetup({ onClose }: Props) {
             {/* Email */}
             <div style={fieldStyle}>
               <label htmlFor="setup-email" style={labelStyle}>{t("accountSetup.emailAddress", "Email address")}</label>
-              <input
-                id="setup-email"
-                name="email"
-                autoComplete="email"
+                <input
+                  ref={emailInputRef}
+                  id="setup-email"
+                  name="email"
+                  autoComplete="email"
                 style={inputStyle}
                 type="email"
                 required
@@ -488,6 +514,8 @@ export default function AccountSetup({ onClose }: Props) {
             {/* Test Connection */}
             {testResult && (
               <div
+                role={testResult.ok ? "status" : "alert"}
+                aria-live={testResult.ok ? "polite" : "assertive"}
                 style={{
                   padding: "10px 12px",
                   borderRadius: "6px",
@@ -507,6 +535,8 @@ export default function AccountSetup({ onClose }: Props) {
             {/* Error */}
             {error && (
               <div
+                role="alert"
+                aria-live="assertive"
                 style={{
                   padding: "10px 12px",
                   borderRadius: "6px",

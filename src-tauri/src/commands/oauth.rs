@@ -4,6 +4,18 @@ use pebble_oauth::{OAuthConfig, OAuthManager};
 use tauri::State;
 use tracing::debug;
 
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
+    let mut diff = 0u8;
+    for (a, b) in left.as_bytes().iter().zip(right.as_bytes()) {
+        diff |= a ^ b;
+    }
+    diff == 0
+}
+
 /// Fetch the user's email and display name from the OAuth provider's userinfo endpoint.
 async fn fetch_userinfo(provider: &str, access_token: &str) -> Result<(String, String), PebbleError> {
     let url = match provider.to_lowercase().as_str() {
@@ -147,14 +159,18 @@ pub async fn complete_oauth_flow(
         .map_err(|e| PebbleError::OAuth(format!("Failed to open browser: {e}")))?;
 
     // Wait for the redirect callback with the authorization code
-    let code = manager
+    let redirect = manager
         .wait_for_redirect()
         .await
         .map_err(|e| PebbleError::OAuth(format!("OAuth redirect failed: {e}")))?;
 
+    if !constant_time_eq(&redirect.state, pkce_state.csrf_token.secret()) {
+        return Err(PebbleError::OAuth("OAuth state mismatch".to_string()));
+    }
+
     // Exchange code for tokens
     let token_pair = manager
-        .complete_auth(&code, pkce_state)
+        .complete_auth(&redirect.code, pkce_state)
         .await
         .map_err(|e| PebbleError::OAuth(format!("Token exchange failed: {e}")))?;
 

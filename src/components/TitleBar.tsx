@@ -1,9 +1,18 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
+import { canLeaveCompose, useUIStore } from "@/stores/ui.store";
 
 export default function TitleBar() {
   const { t } = useTranslation();
   const appWindow = getCurrentWindow();
+
+  async function handleCloseWindow() {
+    if (!canLeaveCompose(useUIStore.getState())) {
+      return;
+    }
+
+    await appWindow.close();
+  }
 
   return (
     <div
@@ -47,7 +56,7 @@ export default function TitleBar() {
           </svg>
         </button>
         <button
-          onClick={() => appWindow.close()}
+          onClick={() => void handleCloseWindow()}
           className="h-9 w-11 inline-flex items-center justify-center hover:bg-red-500 hover:text-white"
           aria-label={t("titleBar.close")}
         >

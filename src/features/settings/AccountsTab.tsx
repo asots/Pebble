@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Trash2, Mail, Pencil, Plug } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useTranslation } from "react-i18next";
@@ -309,6 +309,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
   onSaved: () => void;
 }) {
   const { t } = useTranslation();
+  const emailInputRef = useRef<HTMLInputElement>(null);
   const [displayName, setDisplayName] = useState(account.display_name);
   const [email, setEmail] = useState(account.email);
   const [password, setPassword] = useState("");
@@ -322,6 +323,27 @@ function EditAccountModal({ account, onClose, onSaved }: {
   const [proxyPort, setProxyPort] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    emailInputRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [onClose]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -358,7 +380,6 @@ function EditAccountModal({ account, onClose, onSaved }: {
     backgroundColor: "var(--color-bg)",
     color: "var(--color-text-primary)",
     fontSize: "13px",
-    outline: "none",
     boxSizing: "border-box",
   };
 
@@ -376,6 +397,9 @@ function EditAccountModal({ account, onClose, onSaved }: {
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="edit-account-title"
       style={{
         position: "fixed",
         inset: 0,
@@ -408,13 +432,13 @@ function EditAccountModal({ account, onClose, onSaved }: {
             borderBottom: "1px solid var(--color-border)",
           }}
         >
-          <h2 style={{ margin: 0, fontSize: "15px", fontWeight: 600, color: "var(--color-text-primary)" }}>
+          <h2 id="edit-account-title" style={{ margin: 0, fontSize: "15px", fontWeight: 600, color: "var(--color-text-primary)" }}>
             {t("settings.editAccount", "Edit Account")}
           </h2>
           <button
             onClick={onClose}
             aria-label={t("common.close")}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", borderRadius: "4px", color: "var(--color-text-secondary)", display: "flex" }}
+            style={{ backgroundColor: "transparent", backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 6 6 18'/%3E%3Cpath d='m6 6 12 12'/%3E%3C/svg%3E\")", backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundSize: "18px 18px", border: "none", cursor: "pointer", padding: "4px", borderRadius: "4px", color: "var(--color-text-secondary)", display: "flex", fontSize: 0 }}
           >
             ×
           </button>
@@ -428,7 +452,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
             </div>
             <div style={fieldStyle}>
               <label style={labelStyle}>{t("accountSetup.emailAddress")}</label>
-              <input style={inputStyle} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <input ref={emailInputRef} style={inputStyle} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
             <div style={fieldStyle}>
               <label style={labelStyle}>{t("accountSetup.password")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.leaveEmptyKeep", "leave empty to keep current")})</span></label>
@@ -488,7 +512,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
             </div>
 
             {error && (
-              <div style={{ padding: "10px 12px", borderRadius: "6px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontSize: "13px" }}>
+              <div role="alert" aria-live="assertive" style={{ padding: "10px 12px", borderRadius: "6px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontSize: "13px" }}>
                 {error}
               </div>
             )}

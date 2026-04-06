@@ -4,6 +4,12 @@ import { Plus, Pencil, Trash2, ShieldCheck, X } from "lucide-react";
 import { createRule, deleteRule, listRules, updateRule, type Rule } from "@/lib/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useToastStore } from "@/stores/toast.store";
+import {
+  parseRuleActions,
+  parseRuleConditions,
+  serializeRuleActions,
+  serializeRuleConditions,
+} from "./rule-json";
 
 // ── Types for visual builder ────────────────────────────────────
 type ConditionField = "from" | "to" | "subject" | "body" | "has_attachment" | "domain";
@@ -30,45 +36,19 @@ const KANBAN_COLUMNS: KanbanColumn[] = ["todo", "waiting", "done"];
 
 // ── Helpers to convert between visual model and JSON string ─────
 function parseConditions(json: string): Condition[] {
-  try {
-    const parsed = JSON.parse(json);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && Array.isArray(parsed.conditions)) return parsed.conditions;
-  } catch { /* empty */ }
-  return [{ field: "from", op: "contains", value: "" }];
+  return parseRuleConditions(json);
 }
 
 function serializeConditions(conditions: Condition[]): string {
-  return JSON.stringify(conditions);
+  return serializeRuleConditions(conditions);
 }
 
 function parseActions(json: string): RuleAction[] {
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) return [{ type: "Archive" }];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return parsed.map((a: any) => {
-      if (typeof a === "string") return { type: a as ActionType };
-      if (a.AddLabel) return { type: "AddLabel" as const, value: String(a.AddLabel) };
-      if (a.MoveToFolder) return { type: "MoveToFolder" as const, value: String(a.MoveToFolder) };
-      if (a.SetKanbanColumn) return { type: "SetKanbanColumn" as const, value: String(a.SetKanbanColumn) };
-      if (a.type) return { type: String(a.type) as ActionType, value: a.value ? String(a.value) : undefined };
-      return { type: String(Object.keys(a)[0] || "Archive") as ActionType, value: String(Object.values(a)[0] || "") };
-    });
-  } catch { /* empty */ }
-  return [{ type: "Archive" }];
+  return parseRuleActions(json);
 }
 
 function serializeActions(actions: RuleAction[]): string {
-  return JSON.stringify(
-    actions.map((a) => {
-      if (a.type === "MarkRead" || a.type === "Archive") return a.type;
-      if (a.type === "AddLabel") return { AddLabel: a.value || "" };
-      if (a.type === "MoveToFolder") return { MoveToFolder: a.value || "" };
-      if (a.type === "SetKanbanColumn") return { SetKanbanColumn: a.value || "todo" };
-      return a.type;
-    }),
-  );
+  return serializeRuleActions(actions);
 }
 
 // ── Form state ──────────────────────────────────────────────────
