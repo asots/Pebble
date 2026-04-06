@@ -73,6 +73,12 @@ pub struct SearchHit {
     pub message_id: String,
     pub score: f32,
     pub snippet: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date: Option<i64>,
 }
 
 #[async_trait]

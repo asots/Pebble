@@ -2,6 +2,11 @@ use crate::state::AppState;
 use tauri::State;
 
 #[tauri::command]
+pub fn open_external_url(url: String) -> Result<(), String> {
+    opener::open(&url).map_err(|e| format!("Failed to open URL: {e}"))
+}
+
+#[tauri::command]
 pub fn health_check(state: State<'_, AppState>) -> Result<String, String> {
     match state.store.list_accounts() {
         Ok(accounts) => Ok(format!(

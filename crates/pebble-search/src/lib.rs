@@ -203,10 +203,17 @@ impl TantivySearch {
                 .unwrap_or("")
                 .to_string();
 
+            let subject = doc.get_first(ss.subject).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let from_address = doc.get_first(ss.from_address).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let date = doc.get_first(ss.date).and_then(|v| v.as_datetime()).map(|dt| dt.into_timestamp_secs());
+
             hits.push(SearchHit {
                 message_id,
                 score,
                 snippet,
+                subject,
+                from_address,
+                date,
             });
         }
 
@@ -326,10 +333,17 @@ impl TantivySearch {
                 .unwrap_or("")
                 .to_string();
 
+            let subject = doc.get_first(ss.subject).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let from_address = doc.get_first(ss.from_address).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let date = doc.get_first(ss.date).and_then(|v| v.as_datetime()).map(|dt| dt.into_timestamp_secs());
+
             hits.push(SearchHit {
                 message_id,
                 score,
                 snippet,
+                subject,
+                from_address,
+                date,
             });
         }
 

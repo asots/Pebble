@@ -1,0 +1,104 @@
+pub mod flags;
+pub mod lifecycle;
+pub mod query;
+pub mod rendering;
+
+// ─── Shared helpers used by flags and lifecycle submodules ────────────────────
+
+use crate::commands::oauth::ensure_account_oauth_tokens;
+use crate::state::AppState;
+use pebble_core::{FolderRole, PebbleError};
+use pebble_mail::{GmailProvider, ImapConfig, ImapProvider};
+
+pub(super) async fn connect_gmail(
+    state: &AppState,
+    account_id: &str,
+) -> std::result::Result<GmailProvider, PebbleError> {
+    let tokens = ensure_account_oauth_tokens(state, account_id, "gmail").await?;
+    Ok(GmailProvider::new(tokens.access_token))
+}
+
+pub(super) fn refresh_search_document(
+    state: &AppState,
+    message_id: &str,
+) -> std::result::Result<(), PebbleError> {
+    match state.store.get_message(message_id)? {
+        Some(message) if !message.is_deleted => {
+            let folder_ids = state.store.get_message_folder_ids(message_id)?;
+            if folder_ids.is_empty() {
+                state.search.remove_message(message_id)?;
+            } else {
+                state.search.index_message(&message, &folder_ids)?;
+            }
+        }
+        Some(_) | None => {
+            state.search.remove_message(message_id)?;
+        }
+    }
+
+    state.search.commit()?;
+    Ok(())
+}
+
+pub(super) fn remove_search_documents(
+    state: &AppState,
+    message_ids: &[String],
+) -> std::result::Result<(), PebbleError> {
+    for message_id in message_ids {
+        state.search.remove_message(message_id)?;
+    }
+    if !message_ids.is_empty() {
+        state.search.commit()?;
+    }
+    Ok(())
+}
+
+/// Extract the IMAP config for an account (without connecting).
+pub(super) fn get_imap_config(state: &AppState, account_id: &str) -> std::result::Result<ImapConfig, PebbleError> {
+    if let Some(encrypted) = state.store.get_auth_data(account_id)? {
+        let decrypted = state.crypto.decrypt(&encrypted)?;
+        let value: serde_json::Value = serde_json::from_slice(&decrypted)
+            .map_err(|e| PebbleError::Internal(format!("Failed to parse config: {e}")))?;
+        serde_json::from_value(value.get("imap").cloned().unwrap_or(value.clone()))
+            .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))
+    } else {
+        let sync_json = state.store.get_account_sync_state(account_id)?
+            .ok_or_else(|| PebbleError::Internal(format!("No config for account {account_id}")))?;
+        let value: serde_json::Value = serde_json::from_str(&sync_json)
+            .map_err(|e| PebbleError::Internal(format!("Failed to parse sync state: {e}")))?;
+        serde_json::from_value(value.get("imap").cloned().unwrap_or(value))
+            .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))
+    }
+}
+
+/// Resolve an IMAP connection from the account's auth data.
+pub(super) async fn connect_imap(state: &AppState, account_id: &str) -> std::result::Result<ImapProvider, PebbleError> {
+    let imap_config = get_imap_config(state, account_id)?;
+    let provider = ImapProvider::new(imap_config);
+    provider.connect().await?;
+    Ok(provider)
+}
+
+/// Find the folder with a given role for an account.
+pub(super) fn find_folder_by_role(state: &AppState, account_id: &str, role: FolderRole) -> std::result::Result<pebble_core::Folder, PebbleError> {
+    let folders = state.store.list_folders(account_id)?;
+    folders.into_iter()
+        .find(|f| f.role == Some(role.clone()))
+        .ok_or_else(|| PebbleError::Internal(format!("No {:?} folder found", role)))
+}
+
+/// Find the folder containing a given message (via the message_folders junction table).
+pub(super) fn find_message_folder(state: &AppState, message_id: &str, account_id: &str) -> std::result::Result<pebble_core::Folder, PebbleError> {
+    let folder_ids = state.store.get_message_folder_ids(message_id)?;
+    if folder_ids.is_empty() {
+        return Err(PebbleError::Internal("Message not found in any folder".to_string()));
+    }
+    let folders = state.store.list_folders(account_id)?;
+    // Return the first matching folder (prefer inbox-like folders)
+    for fid in &folder_ids {
+        if let Some(folder) = folders.iter().find(|f| &f.id == fid) {
+            return Ok(folder.clone());
+        }
+    }
+    Err(PebbleError::Internal("Message folder not found".to_string()))
+}

@@ -31,7 +31,7 @@ pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                "pebble=debug,pebble_store=debug,pebble_mail=debug,pebble_search=debug,pebble_translate=debug,pebble_crypto=debug,pebble_oauth=debug".into()
+                "pebble=info,pebble_store=info,pebble_mail=info,pebble_search=info,pebble_translate=info,pebble_crypto=info,pebble_oauth=info".into()
             }),
         )
         .init();
@@ -81,6 +81,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::health::health_check,
+            commands::health::open_external_url,
             commands::accounts::add_account,
             commands::accounts::update_account,
             commands::accounts::list_accounts,
@@ -88,18 +89,18 @@ pub fn run() {
             commands::accounts::test_imap_connection,
             commands::accounts::test_account_connection,
             commands::folders::list_folders,
-            commands::messages::list_messages,
-            commands::messages::list_starred_messages,
-            commands::messages::get_message,
-            commands::messages::get_messages_batch,
-            commands::messages::get_rendered_html,
-            commands::messages::get_message_with_html,
-            commands::messages::update_message_flags,
-            commands::messages::is_trusted_sender,
-            commands::messages::archive_message,
-            commands::messages::delete_message,
-            commands::messages::restore_message,
-            commands::messages::empty_trash,
+            commands::messages::query::list_messages,
+            commands::messages::query::list_starred_messages,
+            commands::messages::query::get_message,
+            commands::messages::query::get_messages_batch,
+            commands::messages::rendering::get_rendered_html,
+            commands::messages::rendering::get_message_with_html,
+            commands::messages::flags::update_message_flags,
+            commands::messages::rendering::is_trusted_sender,
+            commands::messages::lifecycle::archive_message,
+            commands::messages::lifecycle::delete_message,
+            commands::messages::lifecycle::restore_message,
+            commands::messages::lifecycle::empty_trash,
             commands::search::search_messages,
             commands::sync_cmd::start_sync,
             commands::sync_cmd::stop_sync,
@@ -128,7 +129,6 @@ pub fn run() {
             commands::translate::test_translate_connection,
             commands::threads::list_thread_messages,
             commands::threads::list_threads,
-            commands::oauth::start_oauth_flow,
             commands::oauth::complete_oauth_flow,
             commands::attachments::list_attachments,
             commands::attachments::get_attachment_path,
