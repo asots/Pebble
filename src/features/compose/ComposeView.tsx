@@ -444,7 +444,7 @@ export default function ComposeView() {
                 value={fromAccountId}
                 onChange={(e) => setFromAccountId(e.target.value)}
                 style={{
-                  flex: 1, padding: "6px 0", border: "none", outline: "none",
+                  flex: 1, padding: "6px 0", border: "none",
                   backgroundColor: "transparent", fontSize: "13px",
                   color: "var(--color-text-primary)", cursor: "pointer",
                 }}

@@ -107,6 +107,22 @@ html, body, #root {
   }
 }
 
+/* ─── Focus-visible ──────────────────────────────────────── */
+
+/* Global focus ring for keyboard navigation — mouse clicks won't trigger */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Inputs/selects get an inset ring instead */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-offset: -1px;
+}
+
 /* Tiptap editor */
 .tiptap { outline: none; }
 .tiptap:focus { outline: none; }

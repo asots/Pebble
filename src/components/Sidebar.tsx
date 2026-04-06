@@ -14,7 +14,8 @@ import {
   Star,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useUIStore, canLeaveCompose } from "../stores/ui.store";
+import { useUIStore, isComposeDirty } from "../stores/ui.store";
+import { useConfirmStore } from "../stores/confirm.store";
 import { useMailStore } from "../stores/mail.store";
 import { useAccountsQuery, useFoldersQuery } from "../hooks/queries";
 import type { Account, Folder as FolderType } from "../lib/api";
@@ -108,9 +109,14 @@ export default function Sidebar() {
     }
   }, [folders, activeFolderId, setActiveFolderId]);
 
-  function safeSetActiveView(view: Parameters<typeof setActiveView>[0]) {
-    if (!canLeaveCompose(useUIStore.getState())) {
-      if (!window.confirm(t("compose.discardDraftConfirm", "Discard this draft?"))) return;
+  async function safeSetActiveView(view: Parameters<typeof setActiveView>[0]) {
+    if (isComposeDirty(useUIStore.getState())) {
+      const confirmed = await useConfirmStore.getState().confirm({
+        title: t("compose.discardDraft", "Discard draft"),
+        message: t("compose.discardDraftConfirm", "You have an unsaved draft. Discard and leave?"),
+        destructive: true,
+      });
+      if (!confirmed) return;
     }
     setActiveView(view);
   }
@@ -136,6 +142,7 @@ export default function Sidebar() {
 
   return (
     <aside
+      aria-label={t("sidebar.navigation", "Sidebar")}
       style={{
         width: sidebarCollapsed ? "48px" : "200px",
         backgroundColor: "var(--color-sidebar-bg)",
@@ -148,7 +155,7 @@ export default function Sidebar() {
       }}
     >
       {/* Search button */}
-      <nav style={{ padding: "8px 6px 0", display: "flex", flexDirection: "column", gap: "1px" }}>
+      <nav aria-label={t("sidebar.search", "Search")} style={{ padding: "8px 6px 0", display: "flex", flexDirection: "column", gap: "1px" }}>
         <SidebarButton
           icon={<Search size={16} />}
           label={t("search.title", "Search")}
@@ -192,7 +199,6 @@ export default function Sidebar() {
               backgroundColor: "var(--color-bg)",
               color: "var(--color-text-primary)",
               cursor: "pointer",
-              outline: "none",
             }}
           >
             {accounts.map((acc) => (
@@ -206,6 +212,7 @@ export default function Sidebar() {
 
       {/* Folders section */}
       <nav
+        aria-label={t("sidebar.mailFolders", "Mail folders")}
         style={{
           flex: 1,
           overflowY: "auto",
@@ -286,6 +293,7 @@ export default function Sidebar() {
 
       {/* Bottom nav: Snoozed + Kanban + Settings */}
       <nav
+        aria-label={t("sidebar.tools", "Tools")}
         style={{
           padding: "6px 6px 8px",
           display: "flex",
@@ -337,6 +345,8 @@ function SidebarButton({
   return (
     <button
       onClick={onClick}
+      aria-label={collapsed ? label : undefined}
+      aria-current={isActive ? "page" : undefined}
       title={collapsed ? label : undefined}
       style={{
         ...style,

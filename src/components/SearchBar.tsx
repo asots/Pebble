@@ -49,7 +49,6 @@ export default function SearchBar({ onSearch, onClear }: Props) {
         style={{
           flex: 1,
           border: "none",
-          outline: "none",
           backgroundColor: "transparent",
           fontSize: "13px",
           color: "var(--color-text-primary)",

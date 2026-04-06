@@ -7,7 +7,7 @@ import MessageDetail from "@/components/MessageDetail";
 import ThreadView from "./ThreadView";
 import ThreadItem from "@/components/ThreadItem";
 import SearchBar from "@/components/SearchBar";
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
@@ -57,6 +57,14 @@ export default function InboxView() {
     threadView ? activeFolderId : null,
   );
   const handleLoadMore = useCallback(() => setMessageLimit((prev) => prev + 50), []);
+  const handleToggleStar = useCallback((messageId: string, newStarred: boolean) => {
+    queryClient.setQueriesData<MessageSummary[]>(
+      { queryKey: ["messages"] },
+      (old) => old?.map((m) =>
+        m.id === messageId ? { ...m, is_starred: newStarred } : m,
+      ),
+    );
+  }, [queryClient]);
 
   const detailOpen = threadView ? selectedThreadId !== null : selectedMessageId !== null;
 
@@ -180,14 +188,7 @@ export default function InboxView() {
               onSelectMessage={setSelectedMessage}
               loading={loadingMessages}
               onLoadMore={handleLoadMore}
-              onToggleStar={useCallback((messageId: string, newStarred: boolean) => {
-                queryClient.setQueriesData<MessageSummary[]>(
-                  { queryKey: ["messages"] },
-                  (old) => old?.map((m) =>
-                    m.id === messageId ? { ...m, is_starred: newStarred } : m,
-                  ),
-                );
-              }, [queryClient])}
+              onToggleStar={handleToggleStar}
             />
           )}
         </div>
@@ -227,6 +228,15 @@ function ThreadList({ threads, selectedThreadId, onSelectThread, loading }: {
     measureElement: (el) => el.getBoundingClientRect().height,
     overscan: 5,
   });
+
+  // Scroll selected thread into view on keyboard navigation
+  useEffect(() => {
+    if (!selectedThreadId) return;
+    const idx = threads.findIndex((t) => t.thread_id === selectedThreadId);
+    if (idx >= 0) {
+      virtualizer.scrollToIndex(idx, { align: "auto" });
+    }
+  }, [selectedThreadId, threads, virtualizer]);
 
   if (loading) {
     return <MessageListSkeleton />;

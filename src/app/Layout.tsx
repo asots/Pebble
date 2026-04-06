@@ -5,6 +5,8 @@ import ComposeFAB from "../components/ComposeFAB";
 import InboxView from "../features/inbox/InboxView";
 import CommandPalette from "../features/command-palette/CommandPalette";
 import ToastContainer from "../components/ToastContainer";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { useConfirmStore } from "../stores/confirm.store";
 import { useUIStore, applyThemeToDom } from "../stores/ui.store";
 import { useCommandStore } from "../stores/command.store";
 import { useKanbanStore } from "../stores/kanban.store";
@@ -98,6 +100,7 @@ export default function Layout() {
       <StatusBar />
       <CommandPalette />
       <ToastContainer />
+      <GlobalConfirmDialog />
     </div>
   );
 }
@@ -128,6 +131,13 @@ class ViewErrorBoundary extends Component<
           <p style={{ fontSize: 12, margin: 0, color: "var(--color-text-secondary)" }}>
             {i18next.t("errorBoundary.description", "Please try again or refresh the application.")}
           </p>
+          {this.state.error && (
+            <pre style={{ fontSize: 11, color: "#ef4444", maxWidth: "90%", overflow: "auto", whiteSpace: "pre-wrap", textAlign: "left" }}>
+              {this.state.error.message}
+              {"\n"}
+              {this.state.error.stack}
+            </pre>
+          )}
           <button
             onClick={() => this.setState({ error: null })}
             style={{
@@ -143,6 +153,22 @@ class ViewErrorBoundary extends Component<
     }
     return this.props.children;
   }
+}
+
+function GlobalConfirmDialog() {
+  const { isOpen, title, message, destructive, confirmLabel, cancelLabel, handleConfirm, handleCancel } = useConfirmStore();
+  if (!isOpen) return null;
+  return (
+    <ConfirmDialog
+      title={title}
+      message={message}
+      destructive={destructive}
+      confirmLabel={confirmLabel}
+      cancelLabel={cancelLabel}
+      onConfirm={handleConfirm}
+      onCancel={handleCancel}
+    />
+  );
 }
 
 function OfflineBanner() {

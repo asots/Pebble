@@ -28,14 +28,9 @@ function getComposeResetState() {
   };
 }
 
-export function canLeaveCompose(state: Pick<UIState, "activeView" | "composeDirty">): boolean {
-  if (state.activeView !== "compose" || !state.composeDirty) {
-    return true;
-  }
-
-  return globalThis.confirm(
-    i18n.t("compose.discardDraftConfirm", "You have an unsaved draft. Discard and leave?"),
-  );
+/** Check if compose view can be left without losing data (no dialog — just a state check). */
+export function isComposeDirty(state: Pick<UIState, "activeView" | "composeDirty">): boolean {
+  return state.activeView === "compose" && state.composeDirty;
 }
 
 interface UIState {
@@ -88,10 +83,6 @@ export const useUIStore = create<UIState>((set) => ({
     }
 
     if (state.activeView === "compose" && view !== "compose") {
-      if (!canLeaveCompose(state)) {
-        return;
-      }
-
       set({ activeView: view, ...getComposeResetState() });
       return;
     }
@@ -122,10 +113,6 @@ export const useUIStore = create<UIState>((set) => ({
   closeCompose: () => {
     const state = useUIStore.getState();
     if (state.activeView !== "compose") {
-      return;
-    }
-
-    if (!canLeaveCompose(state)) {
       return;
     }
 

@@ -131,7 +131,6 @@ export default function SearchView() {
           style={{
             flex: 1,
             border: "none",
-            outline: "none",
             backgroundColor: "transparent",
             fontSize: "14px",
             color: "var(--color-text-primary)",

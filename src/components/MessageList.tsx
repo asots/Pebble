@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -54,6 +54,15 @@ export default function MessageList({
     measureElement: (el) => el.getBoundingClientRect().height,
     overscan: 5,
   });
+
+  // Scroll selected message into view on keyboard navigation
+  useEffect(() => {
+    if (!selectedMessageId) return;
+    const idx = messages.findIndex((m) => m.id === selectedMessageId);
+    if (idx >= 0) {
+      virtualizer.scrollToIndex(idx, { align: "auto" });
+    }
+  }, [selectedMessageId, messages, virtualizer]);
 
   if (loading) {
     return <MessageListSkeleton />;
@@ -115,6 +124,7 @@ export default function MessageList({
             type="checkbox"
             checked={allSelected}
             onChange={() => allSelected ? clearSelection() : selectAllMessages(messageIds)}
+            aria-label={t("batch.selectAll", "Select all")}
             style={{ cursor: "pointer", accentColor: "var(--color-accent)" }}
           />
           <span style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginRight: "auto" }}>
@@ -203,6 +213,7 @@ function BatchBtn({ icon: Icon, label, onClick, disabled }: {
       onClick={onClick}
       disabled={disabled}
       title={label}
+      aria-label={label}
       style={{
         display: "flex", alignItems: "center", padding: "4px",
         border: "none", background: "transparent", borderRadius: "4px",

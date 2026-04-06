@@ -222,7 +222,6 @@ export default function ContactAutocomplete({
             flex: 1,
             minWidth: "120px",
             border: "none",
-            outline: "none",
             backgroundColor: "transparent",
             fontSize: "13px",
             color: "var(--color-text-primary)",

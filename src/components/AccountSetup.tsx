@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import i18n from "@/lib/i18n";
+import { useConfirmStore } from "@/stores/confirm.store";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
@@ -241,13 +242,19 @@ export default function AccountSetup({ onClose }: Props) {
         justifyContent: "center",
         zIndex: 1000,
       }}
-      onClick={(e) => {
+      onClick={async (e) => {
         if (e.target === e.currentTarget) {
-          // Check if form has been partially filled before closing
           const isDirty = form.email || form.password || form.imap_host;
-          if (!isDirty || globalThis.confirm(i18n.t("accountSetup.discardConfirm", "Discard this form?"))) {
+          if (!isDirty) {
             onClose();
+            return;
           }
+          const confirmed = await useConfirmStore.getState().confirm({
+            title: i18n.t("accountSetup.discardTitle", "Discard form"),
+            message: i18n.t("accountSetup.discardConfirm", "Discard this form?"),
+            destructive: true,
+          });
+          if (confirmed) onClose();
         }
       }}
     >

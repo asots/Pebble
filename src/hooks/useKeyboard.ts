@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useShortcutStore } from "@/stores/shortcut.store";
 import { useCommandStore } from "@/stores/command.store";
-import { useUIStore } from "@/stores/ui.store";
+import { useUIStore, isComposeDirty } from "@/stores/ui.store";
+import { useConfirmStore } from "@/stores/confirm.store";
 import { useMailStore } from "@/stores/mail.store";
 import { useToastStore } from "@/stores/toast.store";
 import { updateMessageFlags, archiveMessage, getMessage } from "@/lib/api";
@@ -39,6 +40,15 @@ function getCachedThreads(): ThreadSummary[] {
     if (data && data.length > 0) return data;
   }
   return [];
+}
+
+async function confirmLeaveCompose(): Promise<boolean> {
+  if (!isComposeDirty(useUIStore.getState())) return true;
+  return useConfirmStore.getState().confirm({
+    title: i18n.t("compose.discardDraft", "Discard draft"),
+    message: i18n.t("compose.discardDraftConfirm", "You have an unsaved draft. Discard and leave?"),
+    destructive: true,
+  });
 }
 
 export function useKeyboard() {
@@ -79,14 +89,14 @@ export function useKeyboard() {
           if (useCommandStore.getState().isOpen) {
             useCommandStore.getState().close();
           } else if (useUIStore.getState().activeView === "compose") {
-            useUIStore.getState().closeCompose();
+            confirmLeaveCompose().then((ok) => { if (ok) useUIStore.getState().closeCompose(); });
           }
           break;
         case "toggle-view-inbox":
-          useUIStore.getState().setActiveView("inbox");
+          confirmLeaveCompose().then((ok) => { if (ok) useUIStore.getState().setActiveView("inbox"); });
           break;
         case "toggle-view-kanban":
-          useUIStore.getState().setActiveView("kanban");
+          confirmLeaveCompose().then((ok) => { if (ok) useUIStore.getState().setActiveView("kanban"); });
           break;
         case "toggle-star": {
           const { selectedMessageId } = useMailStore.getState();
@@ -207,10 +217,10 @@ export function useKeyboard() {
           break;
         }
         case "open-search":
-          useUIStore.getState().setActiveView("search");
+          confirmLeaveCompose().then((ok) => { if (ok) useUIStore.getState().setActiveView("search"); });
           break;
         case "open-cloud-settings":
-          useUIStore.getState().setActiveView("settings");
+          confirmLeaveCompose().then((ok) => { if (ok) useUIStore.getState().setActiveView("settings"); });
           break;
         case "toggle-notifications": {
           const key = "pebble-notifications-enabled";

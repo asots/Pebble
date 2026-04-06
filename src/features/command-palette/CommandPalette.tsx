@@ -130,7 +130,6 @@ export default function CommandPalette() {
             padding: "16px",
             border: "none",
             borderBottom: "1px solid var(--color-border)",
-            outline: "none",
             backgroundColor: "transparent",
             fontSize: "15px",
             color: "var(--color-text-primary)",
