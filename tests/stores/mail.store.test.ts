@@ -113,7 +113,7 @@ describe("MailStore", () => {
     expect(folders[1].id).toBe("f2");
     expect(folders[2].id).toBe("f3");
     expect(mockInvoke).toHaveBeenCalledWith("list_folders", {
-      account_id: "a1",
+      accountId: "a1",
     });
   });
 });

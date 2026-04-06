@@ -40,7 +40,7 @@ describe("KanbanStore", () => {
     await useKanbanStore.getState().moveCard("m1", "done", 0);
 
     expect(useKanbanStore.getState().cards[0].column).toBe("done");
-    expect(mockedInvoke).toHaveBeenCalledWith("move_to_kanban", { message_id: "m1", column: "done" });
+    expect(mockedInvoke).toHaveBeenCalledWith("move_to_kanban", { messageId: "m1", column: "done", position: 0 });
   });
 
   it("moveCard rolls back on error", async () => {
