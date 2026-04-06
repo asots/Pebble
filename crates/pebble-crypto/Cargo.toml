@@ -1,0 +1,11 @@
+[package]
+name = "pebble-crypto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pebble-core = { path = "../pebble-core" }
+aes-gcm = { workspace = true }
+rand = { workspace = true }
+keyring = { workspace = true }
+tracing = { workspace = true }

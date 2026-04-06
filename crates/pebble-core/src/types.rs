@@ -82,6 +82,35 @@ pub struct Message {
     pub updated_at: i64,
 }
 
+/// Lightweight message data for list views (excludes body_text and body_html_raw).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageSummary {
+    pub id: String,
+    pub account_id: String,
+    pub remote_id: String,
+    pub message_id_header: Option<String>,
+    pub in_reply_to: Option<String>,
+    pub references_header: Option<String>,
+    pub thread_id: Option<String>,
+    pub subject: String,
+    pub snippet: String,
+    pub from_address: String,
+    pub from_name: String,
+    pub to_list: Vec<EmailAddress>,
+    pub cc_list: Vec<EmailAddress>,
+    pub bcc_list: Vec<EmailAddress>,
+    pub has_attachments: bool,
+    pub is_read: bool,
+    pub is_starred: bool,
+    pub is_draft: bool,
+    pub date: i64,
+    pub remote_version: Option<String>,
+    pub is_deleted: bool,
+    pub deleted_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmailAddress {
     pub name: Option<String>,
@@ -96,6 +125,8 @@ pub struct Attachment {
     pub mime_type: String,
     pub size: i64,
     pub local_path: Option<String>,
+    pub content_id: Option<String>,
+    pub is_inline: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +195,7 @@ pub enum PrivacyMode {
     Strict,
     TrustSender(String),
     LoadOnce,
+    Off,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +230,61 @@ pub struct TranslateConfig {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreadSummary {
+    pub thread_id: String,
+    pub subject: String,
+    pub snippet: String,
+    pub last_date: i64,
+    pub message_count: u32,
+    pub unread_count: u32,
+    pub is_starred: bool,
+    pub participants: Vec<String>,
+    pub has_attachments: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnownContact {
+    pub name: Option<String>,
+    pub address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Category {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DraftMessage {
+    pub id: Option<String>,
+    pub to: Vec<EmailAddress>,
+    pub cc: Vec<EmailAddress>,
+    pub bcc: Vec<EmailAddress>,
+    pub subject: String,
+    pub body_text: String,
+    pub body_html: Option<String>,
+    pub in_reply_to: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthTokens {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expires_at: Option<i64>,
+    pub scopes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthConfig {
+    pub client_id: String,
+    pub auth_url: String,
+    pub token_url: String,
+    pub scopes: Vec<String>,
+    pub redirect_port: u16,
+}
+
 pub fn new_id() -> String {
     Uuid::new_v4().to_string()
 }
@@ -205,6 +292,6 @@ pub fn new_id() -> String {
 pub fn now_timestamp() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs() as i64
 }

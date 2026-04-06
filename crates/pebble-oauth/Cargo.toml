@@ -1,0 +1,17 @@
+[package]
+name = "pebble-oauth"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+oauth2 = "5"
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+url = "2"
+tracing = { workspace = true }

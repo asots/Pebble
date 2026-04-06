@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 use crate::error::Result;
 use crate::types::*;
 
@@ -36,30 +38,6 @@ pub struct MoveChange {
     pub to_folder: String,
 }
 
-pub trait MailTransport: Send + Sync {
-    fn authenticate(
-        &mut self,
-        credentials: &AuthCredentials,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
-
-    fn fetch_messages(
-        &self,
-        query: &FetchQuery,
-    ) -> impl std::future::Future<Output = Result<FetchResult>> + Send;
-
-    fn send_message(
-        &self,
-        message: &OutgoingMessage,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
-
-    fn sync_changes(
-        &self,
-        since: &SyncCursor,
-    ) -> impl std::future::Future<Output = Result<ChangeSet>> + Send;
-
-    fn capabilities(&self) -> ProviderCapabilities;
-}
-
 pub struct AuthCredentials {
     pub provider: ProviderType,
     pub data: serde_json::Value,
@@ -73,27 +51,6 @@ pub struct OutgoingMessage {
     pub body_text: String,
     pub body_html: Option<String>,
     pub in_reply_to: Option<String>,
-}
-
-pub trait FolderProvider: Send + Sync {
-    fn list_folders(&self) -> impl std::future::Future<Output = Result<Vec<Folder>>> + Send;
-
-    fn move_message(
-        &self,
-        remote_id: &str,
-        to_folder_id: &str,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
-}
-
-pub trait LabelProvider: Send + Sync {
-    fn list_labels(&self) -> impl std::future::Future<Output = Result<Vec<Folder>>> + Send;
-
-    fn modify_labels(
-        &self,
-        remote_id: &str,
-        add: &[String],
-        remove: &[String],
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
 }
 
 pub struct StructuredQuery {
@@ -118,16 +75,68 @@ pub struct SearchHit {
     pub snippet: String,
 }
 
+#[async_trait]
+pub trait MailTransport: Send + Sync {
+    async fn authenticate(&mut self, credentials: &AuthCredentials) -> Result<()>;
+    async fn fetch_messages(&self, query: &FetchQuery) -> Result<FetchResult>;
+    async fn send_message(&self, message: &OutgoingMessage) -> Result<()>;
+    async fn sync_changes(&self, since: &SyncCursor) -> Result<ChangeSet>;
+    fn capabilities(&self) -> ProviderCapabilities;
+}
+
+#[async_trait]
+pub trait FolderProvider: Send + Sync {
+    async fn list_folders(&self) -> Result<Vec<Folder>>;
+    async fn move_message(&self, remote_id: &str, to_folder_id: &str) -> Result<()>;
+}
+
+#[async_trait]
+pub trait LabelProvider: Send + Sync {
+    async fn list_labels(&self) -> Result<Vec<Folder>>;
+    async fn modify_labels(
+        &self,
+        remote_id: &str,
+        add: &[String],
+        remove: &[String],
+    ) -> Result<()>;
+}
+
+#[async_trait]
 pub trait SearchEngine: Send + Sync {
-    fn index_message(
-        &self,
-        message: &Message,
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    async fn index_message(&self, message: &Message) -> Result<()>;
+    async fn search(&self, query: &SearchQuery) -> Result<Vec<SearchHit>>;
+    async fn rebuild_index(&self) -> Result<()>;
+}
 
-    fn search(
-        &self,
-        query: &SearchQuery,
-    ) -> impl std::future::Future<Output = Result<Vec<SearchHit>>> + Send;
+#[async_trait]
+pub trait CategoryProvider: Send + Sync {
+    async fn list_categories(&self) -> Result<Vec<Category>>;
+    async fn set_categories(&self, message_id: &str, categories: &[String]) -> Result<()>;
+}
 
-    fn rebuild_index(&self) -> impl std::future::Future<Output = Result<()>> + Send;
+#[async_trait]
+pub trait DraftProvider: Send + Sync {
+    async fn save_draft(&self, draft: &DraftMessage) -> Result<String>;
+    async fn update_draft(&self, draft_id: &str, draft: &DraftMessage) -> Result<()>;
+    async fn delete_draft(&self, draft_id: &str) -> Result<()>;
+    async fn list_drafts(&self) -> Result<Vec<DraftMessage>>;
+}
+
+pub trait MailProvider: MailTransport + FolderProvider {
+    fn as_label_provider(&self) -> Option<&dyn LabelProvider> {
+        None
+    }
+    fn as_category_provider(&self) -> Option<&dyn CategoryProvider> {
+        None
+    }
+    fn as_draft_provider(&self) -> Option<&dyn DraftProvider> {
+        None
+    }
+}
+
+// Compile-time assertion: MailProvider must be object-safe.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn _assert_object_safe(_: &dyn MailProvider) {}
 }

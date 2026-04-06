@@ -19,6 +19,16 @@ pub enum PebbleError {
     Privacy(String),
     #[error("Internal error: {0}")]
     Internal(String),
+    #[error("OAuth error: {0}")]
+    OAuth(String),
+    #[error("Access token expired: {0}")]
+    TokenExpired(String),
+    #[error("Token refresh failed: {0}")]
+    TokenRefreshFailed(String),
+    #[error("Unsupported provider: {0}")]
+    UnsupportedProvider(String),
+    #[error("Validation error: {0}")]
+    Validation(String),
 }
 
 pub type Result<T> = std::result::Result<T, PebbleError>;
