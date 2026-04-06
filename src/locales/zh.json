@@ -115,6 +115,7 @@
     "notifications": "通知",
     "enableNotifications": "启用桌面通知",
     "cloudSync": "设置备份",
+    "about": "关于",
     "privacy": "隐私",
     "confirmDeleteAccount": "确定移除账户 {{email}}？此操作不可撤销。",
     "removeAccount": "移除账户",
@@ -131,7 +132,7 @@
     "testConnection": "测试连接",
     "connectionSuccess": "连接成功",
     "connectionFailed": "连接失败",
-    "backup": "备份设置",
+    "backup": "开始备份",
     "restore": "恢复设置备份",
     "restoreNotice": "恢复是部分恢复：邮箱账户会在没有密码或 OAuth token 的情况下重建，翻译提供方也可能需要重新连接。",
     "lastBackup": "上次备份",
@@ -139,7 +140,25 @@
     "restoreSuccess": "备份已恢复，请重新连接邮箱账户和翻译提供方后再继续使用。",
     "restoreConfirm": "这会用备份替换本地的规则、看板卡片和已保存的账户元数据。恢复后仍需要重新验证。是否继续？",
     "backupFailed": "备份失败：{{error}}",
-    "restoreFailed": "恢复失败：{{error}}"
+    "restoreFailed": "恢复失败：{{error}}",
+    "encryptionWarning": "注意：备份以未加密 JSON 格式上传，请确保你的 WebDAV 服务器可信。"
+  },
+  "about": {
+    "title": "关于",
+    "version": "版本",
+    "description": "使用 Rust 和 React 构建的隐私优先桌面邮件客户端。数据完全保存在本地设备上——无遥测，无第三方数据访问。",
+    "features": "支持 Gmail、Outlook 和 IMAP 账户。内置看板、全文搜索、延后提醒、规则引擎、双语翻译，以及可选的 WebDAV 设置备份。",
+    "license": "基于 AGPL-3.0 许可证开源。",
+    "updates": "更新",
+    "checkUpdate": "检查更新",
+    "checking": "检查中...",
+    "upToDate": "已是最新版本",
+    "newVersion": "发现新版本：{{version}}",
+    "download": "前往下载",
+    "checkFailed": "检查更新失败",
+    "links": "链接",
+    "sourceCode": "源代码",
+    "reportIssue": "反馈问题"
   },
   "status": {
     "ready": "就绪",

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import i18n from "@/lib/i18n";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
@@ -75,6 +76,8 @@ export default function AccountSetup({ onClose }: Props) {
   const [testLoading, setTestLoading] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const previousFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -85,6 +88,23 @@ export default function AccountSetup({ onClose }: Props) {
       if (event.key === "Escape") {
         event.preventDefault();
         onClose();
+        return;
+      }
+      // Focus trap: keep Tab within the dialog
+      if (event.key === "Tab" && dialogRef.current) {
+        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     }
 
@@ -106,6 +126,8 @@ export default function AccountSetup({ onClose }: Props) {
         form.imap_security,
         form.proxy_host,
         form.proxy_port,
+        form.username || undefined,
+        form.password || undefined,
       );
       setTestResult({ ok: true, message: report });
     } catch (err) {
@@ -118,12 +140,11 @@ export default function AccountSetup({ onClose }: Props) {
 
   const [oauthLoading, setOauthLoading] = useState(false);
 
-  async function handleGmailOAuth() {
+  async function handleOAuth(provider: "gmail" | "outlook") {
     setOauthLoading(true);
     setError(null);
     try {
-      // This call opens the browser, waits for OAuth callback, creates the account
-      const account = await completeOAuthFlow("gmail", form.email || "", form.display_name || "");
+      const account = await completeOAuthFlow(provider, form.email || "", form.display_name || "");
       await queryClient.invalidateQueries({ queryKey: accountsQueryKey });
       await startSync(account.id);
       onClose();
@@ -220,10 +241,17 @@ export default function AccountSetup({ onClose }: Props) {
         zIndex: 1000,
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) {
+          // Check if form has been partially filled before closing
+          const isDirty = form.email || form.password || form.imap_host;
+          if (!isDirty || globalThis.confirm(i18n.t("accountSetup.discardConfirm", "Discard this form?"))) {
+            onClose();
+          }
+        }
       }}
     >
       <div
+        ref={dialogRef}
         style={{
           width: "480px",
           backgroundColor: "var(--color-bg)",
@@ -276,32 +304,57 @@ export default function AccountSetup({ onClose }: Props) {
 
         {/* Scrollable body */}
         <div style={{ overflowY: "auto", padding: "20px" }}>
-          {/* Gmail OAuth sign-in */}
-          <button
-            type="button"
-            disabled={oauthLoading}
-            onClick={handleGmailOAuth}
-            style={{
-              width: "100%",
-              padding: "10px 16px",
-              marginBottom: "16px",
-              borderRadius: "6px",
-              border: "1px solid var(--color-border)",
-              backgroundColor: "var(--color-bg)",
-              color: "var(--color-text-primary)",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: oauthLoading ? "wait" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px",
-              opacity: oauthLoading ? 0.7 : 1,
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#34A853" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#FBBC05" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-            {oauthLoading ? t("accountSetup.adding", "Signing in...") : t("accountSetup.signInGoogle", "Sign in with Google")}
-          </button>
+          {/* OAuth sign-in buttons */}
+          <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+            <button
+              type="button"
+              disabled={oauthLoading}
+              onClick={() => handleOAuth("gmail")}
+              style={{
+                flex: 1,
+                padding: "10px 16px",
+                borderRadius: "6px",
+                border: "1px solid var(--color-border)",
+                backgroundColor: "var(--color-bg)",
+                color: "var(--color-text-primary)",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: oauthLoading ? "wait" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                opacity: oauthLoading ? 0.7 : 1,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#34A853" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#FBBC05" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+              {oauthLoading ? t("accountSetup.adding", "Signing in...") : t("accountSetup.signInGoogle", "Sign in with Google")}
+            </button>
+            <button
+              type="button"
+              disabled={oauthLoading}
+              onClick={() => handleOAuth("outlook")}
+              style={{
+                flex: 1,
+                padding: "10px 16px",
+                borderRadius: "6px",
+                border: "1px solid var(--color-border)",
+                backgroundColor: "var(--color-bg)",
+                color: "var(--color-text-primary)",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: oauthLoading ? "wait" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                opacity: oauthLoading ? 0.7 : 1,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 23 23"><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/><path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/></svg>
+              {oauthLoading ? t("accountSetup.adding", "Signing in...") : t("accountSetup.signInOutlook", "Sign in with Microsoft")}
+            </button>
+          </div>
 
           <div style={{ textAlign: "center", color: "var(--color-text-secondary)", fontSize: "12px", marginBottom: "16px" }}>
             {t("accountSetup.orManual", "or add account manually")}

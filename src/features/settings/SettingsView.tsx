@@ -8,8 +8,9 @@ import RulesTab from "./RulesTab";
 import ShortcutsTab from "./ShortcutsTab";
 import TranslateTab from "./TranslateTab";
 import PrivacyTab from "./PrivacyTab";
+import AboutTab from "./AboutTab";
 
-const TAB_IDS = ["accounts", "general", "appearance", "privacy", "rules", "translation", "shortcuts", "cloudSync"] as const;
+const TAB_IDS = ["accounts", "general", "appearance", "privacy", "rules", "translation", "shortcuts", "cloudSync", "about"] as const;
 
 const TAB_LABEL_KEYS: Record<string, string> = {
   accounts: "settings.accounts",
@@ -20,6 +21,7 @@ const TAB_LABEL_KEYS: Record<string, string> = {
   translation: "settings.translation",
   shortcuts: "settings.shortcuts",
   cloudSync: "settings.cloudSync",
+  about: "settings.about",
 };
 
 export default function SettingsView() {
@@ -46,12 +48,24 @@ export default function SettingsView() {
           flexShrink: 0,
         }}
       >
-        {TAB_IDS.map((id) => (
+        {TAB_IDS.map((id, index) => (
           <button
             key={id}
+            id={`settings-tab-${id}`}
             role="tab"
             aria-selected={activeTab === id}
+            aria-controls={`settings-tabpanel-${id}`}
+            tabIndex={activeTab === id ? 0 : -1}
             onClick={() => handleTabChange(id)}
+            onKeyDown={(e) => {
+              let nextIndex = index;
+              if (e.key === "ArrowDown") { nextIndex = (index + 1) % TAB_IDS.length; }
+              else if (e.key === "ArrowUp") { nextIndex = (index - 1 + TAB_IDS.length) % TAB_IDS.length; }
+              else { return; }
+              e.preventDefault();
+              handleTabChange(TAB_IDS[nextIndex]);
+              document.getElementById(`settings-tab-${TAB_IDS[nextIndex]}`)?.focus();
+            }}
             style={{
               display: "block",
               width: "100%",
@@ -72,7 +86,12 @@ export default function SettingsView() {
         ))}
       </div>
       {/* Tab content */}
-      <div style={{ flex: 1, padding: "32px", maxWidth: "640px", overflow: "auto" }}>
+      <div
+        id={`settings-tabpanel-${activeTab}`}
+        role="tabpanel"
+        aria-labelledby={`settings-tab-${activeTab}`}
+        style={{ flex: 1, padding: "32px", maxWidth: "640px", overflow: "auto" }}
+      >
         {activeTab === "accounts" && <AccountsTab />}
         {activeTab === "general" && <GeneralTab />}
         {activeTab === "appearance" && <AppearanceTab />}
@@ -81,6 +100,7 @@ export default function SettingsView() {
         {activeTab === "shortcuts" && <ShortcutsTab />}
         {activeTab === "privacy" && <PrivacyTab />}
         {activeTab === "cloudSync" && <CloudSyncTab />}
+        {activeTab === "about" && <AboutTab />}
       </div>
     </div>
   );

@@ -3,13 +3,7 @@ import Sidebar from "../components/Sidebar";
 import StatusBar from "../components/StatusBar";
 import ComposeFAB from "../components/ComposeFAB";
 import InboxView from "../features/inbox/InboxView";
-import SettingsView from "../features/settings/SettingsView";
 import CommandPalette from "../features/command-palette/CommandPalette";
-import ComposeView from "../features/compose/ComposeView";
-import KanbanView from "../features/kanban/KanbanView";
-import SearchView from "../features/search/SearchView";
-import SnoozedView from "../features/snoozed/SnoozedView";
-import StarredView from "../features/starred/StarredView";
 import ToastContainer from "../components/ToastContainer";
 import { useUIStore, applyThemeToDom } from "../stores/ui.store";
 import { useCommandStore } from "../stores/command.store";
@@ -18,6 +12,12 @@ import { useKeyboard } from "../hooks/useKeyboard";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { buildCommands } from "../features/command-palette/commands";
 import { useEffect, Component, type ReactNode, type ErrorInfo } from "react";
+import SettingsView from "../features/settings/SettingsView";
+import ComposeView from "../features/compose/ComposeView";
+import KanbanView from "../features/kanban/KanbanView";
+import SearchView from "../features/search/SearchView";
+import SnoozedView from "../features/snoozed/SnoozedView";
+import StarredView from "../features/starred/StarredView";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -81,13 +81,13 @@ export default function Layout() {
         <Sidebar />
         <main className="flex-1 min-w-0 overflow-auto" style={{ position: "relative" }}>
           <ViewErrorBoundary key={activeView}>
-            {activeView === "inbox" && <InboxView />}
-            {activeView === "kanban" && <KanbanView />}
-            {activeView === "settings" && <SettingsView />}
-            {activeView === "search" && <SearchView />}
-            {activeView === "snoozed" && <SnoozedView />}
-            {activeView === "starred" && <StarredView />}
-            {activeView === "compose" && <ComposeView />}
+              {activeView === "inbox" && <InboxView />}
+              {activeView === "kanban" && <KanbanView />}
+              {activeView === "settings" && <SettingsView />}
+              {activeView === "search" && <SearchView />}
+              {activeView === "snoozed" && <SnoozedView />}
+              {activeView === "starred" && <StarredView />}
+              {activeView === "compose" && <ComposeView />}
           </ViewErrorBoundary>
         </main>
       </div>

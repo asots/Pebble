@@ -115,6 +115,7 @@
     "notifications": "Notifications",
     "enableNotifications": "Enable desktop notifications",
     "cloudSync": "Settings Backup",
+    "about": "About",
     "privacy": "Privacy",
     "confirmDeleteAccount": "Remove account {{email}}? This cannot be undone.",
     "removeAccount": "Remove account",
@@ -139,7 +140,25 @@
     "restoreSuccess": "Backup restored. Reconnect email accounts and translation providers to continue.",
     "restoreConfirm": "This will replace your local rules, cards, and saved account metadata with the backup. Reauthentication will still be required. Continue?",
     "backupFailed": "Backup failed: {{error}}",
-    "restoreFailed": "Restore failed: {{error}}"
+    "restoreFailed": "Restore failed: {{error}}",
+    "encryptionWarning": "Note: Backups are uploaded as unencrypted JSON. Ensure your WebDAV server is trusted."
+  },
+  "about": {
+    "title": "About",
+    "version": "Version",
+    "description": "A privacy-first desktop email client built with Rust and React. Your data stays on your device — no telemetry, no third-party data access.",
+    "features": "Supports Gmail, Outlook, and IMAP accounts. Includes Kanban board, full-text search, snooze, rules engine, built-in translation, and optional WebDAV settings backup.",
+    "license": "Open source under AGPL-3.0 license.",
+    "updates": "Updates",
+    "checkUpdate": "Check for updates",
+    "checking": "Checking...",
+    "upToDate": "You're on the latest version",
+    "newVersion": "New version available: {{version}}",
+    "download": "Download",
+    "checkFailed": "Failed to check for updates",
+    "links": "Links",
+    "sourceCode": "Source Code",
+    "reportIssue": "Report an Issue"
   },
   "status": {
     "ready": "Ready",

@@ -8,6 +8,19 @@ import {
   restoreFromWebdav,
 } from "../../lib/api";
 
+/** Extract a readable message from Tauri invoke errors (which may be strings, Error, or plain objects). */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.message === "string") return obj.message;
+    if (typeof obj.error === "string") return obj.error;
+    return JSON.stringify(err);
+  }
+  return String(err);
+}
+
 const LAST_BACKUP_KEY = "pebble-cloud-sync-last-backup";
 
 const labelStyle: React.CSSProperties = {
@@ -69,7 +82,7 @@ export default function CloudSyncTab() {
       setStatusType("success");
     } catch (err: unknown) {
       setStatusMsg(
-        `${t("cloudSync.connectionFailed")}: ${err instanceof Error ? err.message : String(err)}`,
+        `${t("cloudSync.connectionFailed")}: ${errorMessage(err)}`,
       );
       setStatusType("error");
     } finally {
@@ -89,7 +102,7 @@ export default function CloudSyncTab() {
       setStatusType("success");
     } catch (err: unknown) {
       setStatusMsg(
-        t("cloudSync.backupFailed", { error: err instanceof Error ? err.message : String(err) }),
+        t("cloudSync.backupFailed", { error: errorMessage(err) }),
       );
       setStatusType("error");
     } finally {
@@ -110,7 +123,7 @@ export default function CloudSyncTab() {
       await queryClient.invalidateQueries();
     } catch (err: unknown) {
       setStatusMsg(
-        t("cloudSync.restoreFailed", { error: err instanceof Error ? err.message : String(err) }),
+        t("cloudSync.restoreFailed", { error: errorMessage(err) }),
       );
       setStatusType("error");
     } finally {
@@ -148,6 +161,13 @@ export default function CloudSyncTab() {
           "cloudSync.description",
           "Back up rules, cards, and account metadata to WebDAV. This does not sync mail data, attachments, or OAuth secrets.",
         )}
+        {" "}
+        <span style={{ color: "var(--color-warning, #e67e22)" }}>
+          {t(
+            "cloudSync.encryptionWarning",
+            "Note: Backups are uploaded as unencrypted JSON. Ensure your WebDAV server is trusted.",
+          )}
+        </span>
       </p>
 
       <div style={fieldGroupStyle}>

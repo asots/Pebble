@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import i18n from "@/lib/i18n";
 import type { Message } from "@/lib/api";
 
 export type ActiveView = "inbox" | "kanban" | "settings" | "search" | "snoozed" | "starred" | "compose";
@@ -32,7 +33,9 @@ export function canLeaveCompose(state: Pick<UIState, "activeView" | "composeDirt
     return true;
   }
 
-  return globalThis.confirm("You have an unsaved draft. Discard and leave?");
+  return globalThis.confirm(
+    i18n.t("compose.discardDraftConfirm", "You have an unsaved draft. Discard and leave?"),
+  );
 }
 
 interface UIState {
@@ -101,7 +104,7 @@ export const useUIStore = create<UIState>((set) => ({
     set({ theme });
   },
   setLanguage: (lang) => {
-    import("@/lib/i18n").then((mod) => mod.default.changeLanguage(lang));
+    i18n.changeLanguage(lang);
     localStorage.setItem("pebble-language", lang);
     set({ language: lang });
   },
