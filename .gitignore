@@ -1,10 +1,41 @@
+# Dependencies
 node_modules/
+
+# Build output
 target/
 dist/
+
+# Environment / secrets
 .env
-.env.*
-src-tauri/gen/
+.env.local
+.env.*.local
 *.pem
 *.key
 *.p12
+
+# Tauri generated
+src-tauri/gen/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
 pnpm-debug.log
+*.log
+
+# Database files
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Claude Code
+.claude/

@@ -8,6 +8,8 @@ members = [
     "crates/pebble-search",
     "crates/pebble-rules",
     "crates/pebble-translate",
+    "crates/pebble-crypto",
+    "crates/pebble-oauth",
 ]
 resolver = "2"
 
@@ -22,9 +24,22 @@ rusqlite = { version = "0.39", features = ["bundled"] }
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }
 async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
-async-native-tls = { version = "0.5", default-features = false, features = ["runtime-tokio"] }
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["aws_lc_rs"] }
+webpki-roots = "0.26"
 mail-parser = "0.9"
 tantivy = "0.22"
 ammonia = "4"
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+tokio-socks = "0.5"
+aes-gcm = "0.10"
+rand = "0.8"
+keyring = { version = "3", features = ["windows-native"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

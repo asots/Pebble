@@ -14,13 +14,19 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { workspace = true }
+opener = "0.7"
 pebble-core = { path = "../crates/pebble-core" }
 pebble-store = { path = "../crates/pebble-store" }
 pebble-privacy = { path = "../crates/pebble-privacy" }
 pebble-mail = { path = "../crates/pebble-mail" }
 pebble-search = { path = "../crates/pebble-search" }
 pebble-rules = { path = "../crates/pebble-rules" }
+pebble-translate = { path = "../crates/pebble-translate" }
+pebble-crypto = { path = "../crates/pebble-crypto" }
+pebble-oauth = { path = "../crates/pebble-oauth" }
+tauri-plugin-notification = "2"
 lettre = { workspace = true }
+reqwest = { workspace = true }
 
 [build-dependencies]
 tauri-build = { workspace = true }
