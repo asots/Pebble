@@ -1,4 +1,4 @@
-use pebble_core::{KnownContact, PebbleError, Result};
+use pebble_core::{KnownContact, Result};
 use rusqlite::params;
 
 use crate::Store;
@@ -28,8 +28,7 @@ impl Store {
                        AND is_deleted = 0
                        AND (from_address LIKE ?2 ESCAPE '\\' OR from_name LIKE ?2 ESCAPE '\\')
                      LIMIT ?3",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
 
             let from_rows = stmt
                 .query_map(params![account_id, pattern, limit], |row| {
@@ -39,14 +38,13 @@ impl Store {
                         name: if name.is_empty() { None } else { Some(name) },
                         address,
                     })
-                })
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                })?;
 
             let mut seen = std::collections::HashSet::new();
             let mut contacts = Vec::new();
 
             for row in from_rows {
-                let contact = row.map_err(|e| PebbleError::Storage(e.to_string()))?;
+                let contact = row?;
                 let key = contact.address.to_lowercase();
                 if seen.insert(key) {
                     contacts.push(contact);
@@ -64,20 +62,18 @@ impl Store {
                            AND is_deleted = 0
                            AND to_list LIKE ?2 ESCAPE '\\'
                          LIMIT ?3",
-                    )
-                    .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                    )?;
 
                 let to_rows = stmt2
                     .query_map(params![account_id, pattern, remaining * 5], |row| {
                         row.get::<_, String>(0)
-                    })
-                    .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                    })?;
 
                 for row in to_rows {
                     if contacts.len() as i64 >= limit {
                         break;
                     }
-                    let json_str = row.map_err(|e| PebbleError::Storage(e.to_string()))?;
+                    let json_str = row?;
                     if let Ok(addrs) =
                         serde_json::from_str::<Vec<pebble_core::EmailAddress>>(&json_str)
                     {

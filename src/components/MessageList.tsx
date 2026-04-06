@@ -36,6 +36,8 @@ export default function MessageList({
     count: messages.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 76,
+    measureElement: (el) => el.getBoundingClientRect().height,
+    overscan: 5,
   });
 
   if (loading) {
@@ -81,6 +83,8 @@ export default function MessageList({
           return (
             <div
               key={virtualItem.key}
+              ref={virtualizer.measureElement}
+              data-index={virtualItem.index}
               style={{
                 position: "absolute",
                 top: 0,

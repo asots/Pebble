@@ -440,7 +440,7 @@ impl SyncWorker {
                     // Update in-memory thread mappings so later messages in this batch
                     // can find this message as a thread parent.
                     if let (Some(mid), Some(tid)) = (&msg.message_id_header, &msg.thread_id) {
-                        thread_mappings.push((mid.clone(), tid.clone()));
+                        thread_mappings.insert(mid.clone(), tid.clone());
                     }
 
                     // Notify listeners (e.g. search indexer) about the new message

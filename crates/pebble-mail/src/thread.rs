@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use pebble_core::{Message, new_id};
 
 /// Strip common reply/forward prefixes from a subject line, recursively.
@@ -10,8 +11,6 @@ pub fn normalize_subject(subject: &str) -> String {
         let mut matched = false;
         for prefix in &prefixes {
             if lower.starts_with(prefix) {
-                // Safe: prefix bytes are identical in original and lowered form
-                // (all prefixes are ASCII or CJK characters invariant under lowercasing)
                 s = s[prefix.len()..].trim().to_string();
                 matched = true;
                 break;
@@ -26,27 +25,21 @@ pub fn normalize_subject(subject: &str) -> String {
 
 /// Compute the thread ID for a message.
 ///
-/// `existing_threads` is a slice of `(message_id_header, thread_id)` pairs
-/// representing messages already in the store.
+/// `existing_threads` maps `message_id_header → thread_id` for messages
+/// already in the store. O(1) lookup per reference.
 ///
 /// Logic:
 /// 1. Check `in_reply_to` against existing `message_id_header`s.
 /// 2. Check each ID in `references_header` (space-separated) against existing.
 /// 3. Fall back to the message's own `message_id_header`.
 /// 4. If none, generate a new UUID.
-pub fn compute_thread_id(message: &Message, existing_threads: &[(String, String)]) -> String {
-    // Helper: look up a message-id in existing_threads
+pub fn compute_thread_id(message: &Message, existing_threads: &HashMap<String, String>) -> String {
     let lookup = |mid: &str| -> Option<String> {
-        let needle = mid.trim();
-        existing_threads
-            .iter()
-            .find(|(msg_id, _)| msg_id.trim() == needle)
-            .map(|(_, thread_id)| thread_id.clone())
+        existing_threads.get(mid.trim()).cloned()
     };
 
     // 1. Check In-Reply-To
     if let Some(irt) = &message.in_reply_to {
-        // In-Reply-To may contain multiple IDs space-separated
         for id in irt.split_whitespace() {
             if let Some(tid) = lookup(id) {
                 return tid;
@@ -136,18 +129,16 @@ mod tests {
     #[test]
     fn test_compute_thread_id_new_thread() {
         let msg = make_message(Some("<new@example.com>"), None, None);
-        let existing: Vec<(String, String)> = vec![];
+        let existing: HashMap<String, String> = HashMap::new();
         let tid = compute_thread_id(&msg, &existing);
-        // No match → use own message_id_header
         assert_eq!(tid, "<new@example.com>");
     }
 
     #[test]
     fn test_compute_thread_id_reply() {
-        let existing = vec![(
-            "<original@example.com>".to_string(),
-            "thread-abc".to_string(),
-        )];
+        let existing: HashMap<String, String> = [
+            ("<original@example.com>".to_string(), "thread-abc".to_string()),
+        ].into_iter().collect();
         let msg = make_message(
             Some("<reply@example.com>"),
             Some("<original@example.com>"),
@@ -159,8 +150,9 @@ mod tests {
 
     #[test]
     fn test_compute_thread_id_via_references() {
-        let existing = vec![("<root@example.com>".to_string(), "thread-xyz".to_string())];
-        // in_reply_to doesn't match, but references does
+        let existing: HashMap<String, String> = [
+            ("<root@example.com>".to_string(), "thread-xyz".to_string()),
+        ].into_iter().collect();
         let msg = make_message(
             Some("<reply2@example.com>"),
             Some("<nonexistent@example.com>"),

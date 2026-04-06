@@ -1,4 +1,4 @@
-use pebble_core::{PebbleError, Result, SnoozedMessage};
+use pebble_core::{Result, SnoozedMessage};
 use rusqlite::params;
 
 use crate::Store;
@@ -24,8 +24,7 @@ impl Store {
                     snooze.unsnoozed_at,
                     snooze.return_to,
                 ],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -36,14 +35,12 @@ impl Store {
                 .prepare(
                     "SELECT message_id, snoozed_at, unsnoozed_at, return_to
                      FROM snoozed_messages",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             let rows = stmt
-                .query_map([], row_to_snoozed)
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .query_map([], row_to_snoozed)?;
             let mut results = Vec::new();
             for row in rows {
-                results.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                results.push(row?);
             }
             Ok(results)
         })
@@ -55,14 +52,12 @@ impl Store {
                 .prepare(
                     "SELECT message_id, snoozed_at, unsnoozed_at, return_to
                      FROM snoozed_messages WHERE unsnoozed_at <= ?1",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             let rows = stmt
-                .query_map(params![now], row_to_snoozed)
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .query_map(params![now], row_to_snoozed)?;
             let mut results = Vec::new();
             for row in rows {
-                results.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                results.push(row?);
             }
             Ok(results)
         })
@@ -73,8 +68,7 @@ impl Store {
             conn.execute(
                 "DELETE FROM snoozed_messages WHERE message_id = ?1",
                 params![message_id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }

@@ -14,7 +14,7 @@ impl Store {
                      is_enabled = excluded.is_enabled,
                      updated_at = excluded.updated_at",
                 params![config.id, config.provider_type, config.config, config.is_enabled as i32, config.created_at, config.updated_at],
-            ).map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -23,7 +23,7 @@ impl Store {
         self.with_read(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, provider_type, config, is_enabled, created_at, updated_at FROM translate_config WHERE id = 'active'"
-            ).map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             let mut rows = stmt.query_map([], |row| {
                 Ok(TranslateConfig {
                     id: row.get(0)?,
@@ -33,7 +33,7 @@ impl Store {
                     created_at: row.get(4)?,
                     updated_at: row.get(5)?,
                 })
-            }).map_err(|e| PebbleError::Storage(e.to_string()))?;
+            })?;
             match rows.next() {
                 Some(Ok(config)) => Ok(Some(config)),
                 Some(Err(e)) => Err(PebbleError::Storage(e.to_string())),
@@ -44,8 +44,7 @@ impl Store {
 
     pub fn delete_translate_config(&self) -> Result<()> {
         self.with_write(|conn| {
-            conn.execute("DELETE FROM translate_config WHERE id = 'active'", [])
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            conn.execute("DELETE FROM translate_config WHERE id = 'active'", [])?;
             Ok(())
         })
     }

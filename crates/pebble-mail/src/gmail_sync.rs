@@ -155,7 +155,7 @@ impl GmailSyncWorker {
         &self,
         fetched: GmailFetchedMessage,
         fallback_folder_id: &str,
-        thread_mappings: &mut Vec<(String, String)>,
+        thread_mappings: &mut HashMap<String, String>,
         folders_by_remote: &HashMap<String, String>,
     ) -> Result<bool> {
         let GmailFetchedMessage {
@@ -178,7 +178,7 @@ impl GmailSyncWorker {
         );
 
         if let (Some(mid), Some(tid)) = (&message.message_id_header, &message.thread_id) {
-            thread_mappings.push((mid.clone(), tid.clone()));
+            thread_mappings.insert(mid.clone(), tid.clone());
         }
         if let Some(tx) = &self.message_tx {
             let _ = tx.send(StoredMessage {

@@ -894,7 +894,7 @@ mod tests {
 
     #[test]
     fn test_capabilities() {
-        let provider = OutlookProvider::new("token".to_string());
+        let provider = OutlookProvider::new("token".to_string(), "test-account".to_string());
         let caps = provider.capabilities();
         assert!(!caps.has_labels);
         assert!(caps.has_folders);
@@ -1059,7 +1059,7 @@ mod tests {
 
     #[test]
     fn test_set_access_token() {
-        let provider = OutlookProvider::new("initial".to_string());
+        let provider = OutlookProvider::new("initial".to_string(), "test-account".to_string());
         assert_eq!(provider.token(), "initial");
         provider.set_access_token("updated".to_string());
         assert_eq!(provider.token(), "updated");

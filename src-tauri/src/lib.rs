@@ -50,12 +50,38 @@ pub fn run() {
             let search_needs_reindex = search.needs_reindex();
             tracing::info!("Search index initialized successfully");
 
-            if search_needs_reindex || search.doc_count() == 0 {
-                let reason = if search_needs_reindex { "schema migration" } else { "empty index" };
-                tracing::info!("Rebuilding search index ({reason})...");
+            // Determine if search index needs rebuilding
+            let needs_rebuild = if search_needs_reindex {
+                tracing::info!("Search index schema changed, rebuild required");
+                true
+            } else if search.doc_count() == 0 {
+                let db_count = store.count_all_messages().unwrap_or(0);
+                if db_count > 0 {
+                    tracing::info!("Search index empty but DB has {db_count} messages, rebuild required");
+                    true
+                } else {
+                    false
+                }
+            } else {
+                // Consistency check: if counts diverge by >10%, rebuild
+                let db_count = store.count_all_messages().unwrap_or(0);
+                let idx_count = search.doc_count();
+                let diff = (db_count as i64 - idx_count as i64).unsigned_abs();
+                let threshold = (db_count.max(idx_count) / 10).max(5);
+                if diff > threshold {
+                    tracing::warn!(
+                        "SQLite/Tantivy count mismatch (db={db_count}, index={idx_count}), rebuilding"
+                    );
+                    true
+                } else {
+                    false
+                }
+            };
+
+            if needs_rebuild {
                 match commands::sync_cmd::do_reindex(&store, &search) {
-                    Ok(n) => tracing::info!("Reindexed {n} messages ({reason})"),
-                    Err(e) => tracing::error!("Failed to reindex ({reason}): {e}"),
+                    Ok(n) => tracing::info!("Reindexed {n} messages"),
+                    Err(e) => tracing::error!("Failed to reindex: {e}"),
                 }
             }
 

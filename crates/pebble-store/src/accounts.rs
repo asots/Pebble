@@ -33,8 +33,7 @@ impl Store {
                     account.created_at,
                     account.updated_at,
                 ],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -45,8 +44,7 @@ impl Store {
             conn.execute(
                 "UPDATE accounts SET email = ?1, display_name = ?2, updated_at = ?3 WHERE id = ?4",
                 rusqlite::params![email, display_name, now, id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -69,8 +67,7 @@ impl Store {
                         })
                     },
                 )
-                .optional()
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .optional()?;
             Ok(result)
         })
     }
@@ -81,8 +78,7 @@ impl Store {
                 .prepare(
                     "SELECT id, email, display_name, provider, created_at, updated_at
                      FROM accounts ORDER BY created_at ASC",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             let rows = stmt
                 .query_map([], |row| {
                     Ok(Account {
@@ -93,11 +89,10 @@ impl Store {
                         created_at: row.get(4)?,
                         updated_at: row.get(5)?,
                     })
-                })
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                })?;
             let mut accounts = Vec::new();
             for row in rows {
-                accounts.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                accounts.push(row?);
             }
             Ok(accounts)
         })
@@ -105,8 +100,7 @@ impl Store {
 
     pub fn delete_account(&self, id: &str) -> Result<()> {
         self.with_write(|conn| {
-            conn.execute("DELETE FROM accounts WHERE id = ?1", rusqlite::params![id])
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            conn.execute("DELETE FROM accounts WHERE id = ?1", rusqlite::params![id])?;
             Ok(())
         })
     }
@@ -116,8 +110,7 @@ impl Store {
             conn.execute(
                 "UPDATE accounts SET sync_state = ?1, updated_at = ?2 WHERE id = ?3",
                 rusqlite::params![sync_state, pebble_core::now_timestamp(), account_id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -129,8 +122,7 @@ impl Store {
                     "SELECT sync_state FROM accounts WHERE id = ?1",
                     rusqlite::params![account_id],
                     |row| row.get::<_, Option<String>>(0),
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             Ok(result)
         })
     }
@@ -144,8 +136,7 @@ impl Store {
                     rusqlite::params![account_id],
                     |row| row.get(0),
                 )
-                .optional()
-                .map_err(|e| PebbleError::Storage(e.to_string()))?
+                .optional()?
                 .flatten();
 
             if let Some(json_str) = result {
@@ -171,8 +162,7 @@ impl Store {
                     rusqlite::params![account_id],
                     |row| row.get(0),
                 )
-                .optional()
-                .map_err(|e| PebbleError::Storage(e.to_string()))?
+                .optional()?
                 .flatten();
 
             let mut value: serde_json::Value = if let Some(json_str) = current {
@@ -190,8 +180,7 @@ impl Store {
             conn.execute(
                 "UPDATE accounts SET sync_state = ?1, updated_at = ?2 WHERE id = ?3",
                 rusqlite::params![new_json, now, account_id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }

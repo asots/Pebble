@@ -1,4 +1,4 @@
-use pebble_core::{Attachment, PebbleError, Result};
+use pebble_core::{Attachment, Result};
 use rusqlite::{params, OptionalExtension};
 
 use crate::Store;
@@ -19,8 +19,7 @@ impl Store {
                     attachment.content_id,
                     attachment.is_inline,
                 ],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -31,8 +30,7 @@ impl Store {
                 .prepare(
                     "SELECT id, message_id, filename, mime_type, size, local_path, content_id, is_inline
                      FROM attachments WHERE message_id = ?1",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             let rows = stmt
                 .query_map(params![message_id], |row| {
                     Ok(Attachment {
@@ -45,11 +43,10 @@ impl Store {
                         content_id: row.get(6)?,
                         is_inline: row.get(7)?,
                     })
-                })
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                })?;
             let mut results = Vec::new();
             for row in rows {
-                results.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                results.push(row?);
             }
             Ok(results)
         })
@@ -57,7 +54,7 @@ impl Store {
 
     pub fn get_attachment(&self, attachment_id: &str) -> Result<Option<Attachment>> {
         self.with_read(|conn| {
-            conn.query_row(
+            let result = conn.query_row(
                 "SELECT id, message_id, filename, mime_type, size, local_path, content_id, is_inline
                  FROM attachments WHERE id = ?1",
                 params![attachment_id],
@@ -74,8 +71,8 @@ impl Store {
                     })
                 },
             )
-            .optional()
-            .map_err(|e| PebbleError::Storage(e.to_string()))
+            .optional()?;
+            Ok(result)
         })
     }
 }

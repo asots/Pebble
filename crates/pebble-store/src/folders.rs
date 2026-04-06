@@ -1,4 +1,4 @@
-use pebble_core::{Folder, FolderRole, FolderType, PebbleError, Result};
+use pebble_core::{Folder, FolderRole, FolderType, Result};
 use rusqlite::{params, OptionalExtension};
 
 use crate::Store;
@@ -53,8 +53,7 @@ impl Store {
                     rusqlite::params![folder.account_id, folder.remote_id],
                     |row| row.get(0),
                 )
-                .optional()
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .optional()?;
 
             if let Some(existing_id) = existing {
                 conn.execute(
@@ -67,8 +66,7 @@ impl Store {
                         folder.sort_order,
                         existing_id,
                     ],
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             } else {
                 conn.execute(
                     "INSERT INTO folders (id, account_id, remote_id, name, folder_type, role, parent_id, color, is_system, sort_order)
@@ -85,8 +83,7 @@ impl Store {
                         folder.is_system as i32,
                         folder.sort_order,
                     ],
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             }
             Ok(())
         })
@@ -99,8 +96,7 @@ impl Store {
                 .prepare_cached(
                     "SELECT id, account_id, remote_id, name, folder_type, role, parent_id, color, is_system, sort_order
                      FROM folders WHERE account_id = ?1 AND role = ?2 LIMIT 1",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             let result = stmt
                 .query_row(params![account_id, role_str], |row| {
                     let role_val: Option<String> = row.get(5)?;
@@ -118,8 +114,7 @@ impl Store {
                         sort_order: row.get(9)?,
                     })
                 })
-                .optional()
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .optional()?;
             Ok(result)
         })
     }
@@ -135,8 +130,7 @@ impl Store {
             conn.execute(
                 "DELETE FROM folders WHERE account_id = ?1 AND remote_id = ?2",
                 rusqlite::params![account_id, remote_id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -147,8 +141,7 @@ impl Store {
                 .prepare(
                     "SELECT id, account_id, remote_id, name, folder_type, role, parent_id, color, is_system, sort_order
                      FROM folders WHERE account_id = ?1 ORDER BY sort_order ASC",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             let rows = stmt
                 .query_map(rusqlite::params![account_id], |row| {
                     let role_str: Option<String> = row.get(5)?;
@@ -165,11 +158,10 @@ impl Store {
                         is_system: is_system != 0,
                         sort_order: row.get(9)?,
                     })
-                })
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                })?;
             let mut folders = Vec::new();
             for row in rows {
-                folders.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                folders.push(row?);
             }
             Ok(folders)
         })

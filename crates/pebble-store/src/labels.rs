@@ -1,4 +1,4 @@
-use pebble_core::{new_id, PebbleError, Result};
+use pebble_core::{new_id, Result};
 use rusqlite::OptionalExtension;
 use std::collections::HashMap;
 
@@ -24,8 +24,7 @@ impl Store {
                     rusqlite::params![name],
                     |row| row.get(0),
                 )
-                .optional()
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .optional()?;
 
             if let Some(id) = existing {
                 return Ok(id);
@@ -35,8 +34,7 @@ impl Store {
             conn.execute(
                 "INSERT INTO labels (id, name, color, is_system) VALUES (?1, ?2, '#808080', 0)",
                 rusqlite::params![id, name],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(id)
         })
     }
@@ -48,8 +46,7 @@ impl Store {
             conn.execute(
                 "INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?1, ?2)",
                 rusqlite::params![message_id, label_id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -61,8 +58,7 @@ impl Store {
                 "DELETE FROM message_labels WHERE message_id = ?1
                  AND label_id IN (SELECT id FROM labels WHERE name = ?2)",
                 rusqlite::params![message_id, label_name],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -77,8 +73,7 @@ impl Store {
                      INNER JOIN message_labels ml ON ml.label_id = l.id
                      WHERE ml.message_id = ?1
                      ORDER BY l.name",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             let rows = stmt
                 .query_map(rusqlite::params![message_id], |row| {
                     let is_system: i32 = row.get(3)?;
@@ -89,11 +84,10 @@ impl Store {
                         is_system: is_system != 0,
                         rule_id: row.get(4)?,
                     })
-                })
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                })?;
             let mut labels = Vec::new();
             for row in rows {
-                labels.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                labels.push(row?);
             }
             Ok(labels)
         })
@@ -116,8 +110,7 @@ impl Store {
                 placeholders.join(", ")
             );
             let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .prepare(&sql)?;
 
             let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> =
                 Vec::with_capacity(message_ids.len());
@@ -140,15 +133,14 @@ impl Store {
                             rule_id: row.get(5)?,
                         },
                     ))
-                })
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                })?;
 
             let mut result: HashMap<String, Vec<Label>> = HashMap::new();
             for message_id in message_ids {
                 result.entry(message_id.clone()).or_default();
             }
             for row in rows {
-                let (message_id, label) = row.map_err(|e| PebbleError::Storage(e.to_string()))?;
+                let (message_id, label) = row?;
                 result.entry(message_id).or_default().push(label);
             }
             Ok(result)
@@ -159,8 +151,7 @@ impl Store {
     pub fn list_labels(&self) -> Result<Vec<Label>> {
         self.with_read(|conn| {
             let mut stmt = conn
-                .prepare("SELECT id, name, color, is_system, rule_id FROM labels ORDER BY name")
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .prepare("SELECT id, name, color, is_system, rule_id FROM labels ORDER BY name")?;
             let rows = stmt
                 .query_map([], |row| {
                     let is_system: i32 = row.get(3)?;
@@ -171,11 +162,10 @@ impl Store {
                         is_system: is_system != 0,
                         rule_id: row.get(4)?,
                     })
-                })
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                })?;
             let mut labels = Vec::new();
             for row in rows {
-                labels.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                labels.push(row?);
             }
             Ok(labels)
         })

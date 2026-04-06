@@ -207,6 +207,8 @@ function ThreadList({ threads, selectedThreadId, onSelectThread, loading }: {
     count: threads.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 76,
+    measureElement: (el) => el.getBoundingClientRect().height,
+    overscan: 5,
   });
 
   if (loading) {
@@ -229,6 +231,8 @@ function ThreadList({ threads, selectedThreadId, onSelectThread, loading }: {
           return (
             <div
               key={virtualItem.key}
+              ref={virtualizer.measureElement}
+              data-index={virtualItem.index}
               style={{
                 position: "absolute", top: 0, left: 0, width: "100%",
                 transform: `translateY(${virtualItem.start}px)`,

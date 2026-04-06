@@ -1,4 +1,4 @@
-use pebble_core::{PebbleError, Result, Rule};
+use pebble_core::{Result, Rule};
 use rusqlite::params;
 
 use crate::Store;
@@ -33,8 +33,7 @@ impl Store {
                     rule.created_at,
                     rule.updated_at,
                 ],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -45,14 +44,12 @@ impl Store {
                 .prepare(
                     "SELECT id, name, priority, conditions, actions, is_enabled, created_at, updated_at
                      FROM rules ORDER BY priority ASC",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             let rows = stmt
-                .query_map([], row_to_rule)
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .query_map([], row_to_rule)?;
             let mut rules = Vec::new();
             for row in rows {
-                rules.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                rules.push(row?);
             }
             Ok(rules)
         })
@@ -72,16 +69,14 @@ impl Store {
                     rule.updated_at,
                     rule.id,
                 ],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
 
     pub fn delete_rule(&self, id: &str) -> Result<()> {
         self.with_write(|conn| {
-            conn.execute("DELETE FROM rules WHERE id = ?1", params![id])
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            conn.execute("DELETE FROM rules WHERE id = ?1", params![id])?;
             Ok(())
         })
     }

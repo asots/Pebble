@@ -1,4 +1,4 @@
-use pebble_core::{PebbleError, Result, TrustType, TrustedSender};
+use pebble_core::{Result, TrustType, TrustedSender};
 use rusqlite::{params, OptionalExtension};
 
 use crate::Store;
@@ -38,8 +38,7 @@ impl Store {
                     trust_type_to_str(&sender.trust_type),
                     sender.created_at,
                 ],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -52,8 +51,7 @@ impl Store {
                     params![account_id, email],
                     |row| row.get::<_, String>(0),
                 )
-                .optional()
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .optional()?;
             Ok(result.map(|s| str_to_trust_type(&s)))
         })
     }
@@ -64,14 +62,12 @@ impl Store {
                 .prepare(
                     "SELECT account_id, email, trust_type, created_at
                      FROM trusted_senders WHERE account_id = ?1",
-                )
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                )?;
             let rows = stmt
-                .query_map(params![account_id], row_to_trusted_sender)
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .query_map(params![account_id], row_to_trusted_sender)?;
             let mut senders = Vec::new();
             for row in rows {
-                senders.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                senders.push(row?);
             }
             Ok(senders)
         })
@@ -82,8 +78,7 @@ impl Store {
             conn.execute(
                 "DELETE FROM trusted_senders WHERE account_id = ?1 AND email = ?2",
                 params![account_id, email],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }

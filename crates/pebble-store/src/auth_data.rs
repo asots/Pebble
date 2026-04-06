@@ -11,8 +11,7 @@ impl Store {
             let rows_affected = conn.execute(
                 "UPDATE accounts SET auth_data = ?1, updated_at = ?2 WHERE id = ?3",
                 params![encrypted, now, account_id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             if rows_affected == 0 {
                 return Err(PebbleError::Storage(format!(
                     "account not found: {account_id}"
@@ -31,8 +30,7 @@ impl Store {
                     params![account_id],
                     |row| row.get(0),
                 )
-                .optional()
-                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                .optional()?;
             Ok(result.flatten())
         })
     }
@@ -44,8 +42,7 @@ impl Store {
             conn.execute(
                 "UPDATE accounts SET auth_data = NULL, updated_at = ?1 WHERE id = ?2",
                 params![now, account_id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }

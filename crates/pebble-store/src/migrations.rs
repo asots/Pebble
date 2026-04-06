@@ -14,14 +14,11 @@ fn set_schema_version(conn: &Connection, version: u32) -> Result<()> {
 }
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
-    conn.execute_batch("PRAGMA journal_mode=WAL;")
-        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
 
-    conn.execute_batch("PRAGMA foreign_keys=ON;")
-        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+    conn.execute_batch("PRAGMA foreign_keys=ON;")?;
 
-    conn.execute_batch("PRAGMA busy_timeout=5000;")
-        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")?;
 
     let version = get_schema_version(conn);
 

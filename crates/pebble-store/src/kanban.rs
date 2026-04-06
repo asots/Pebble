@@ -1,4 +1,4 @@
-use pebble_core::{KanbanCard, KanbanColumn, PebbleError, Result};
+use pebble_core::{KanbanCard, KanbanColumn, Result};
 use rusqlite::params;
 
 use crate::Store;
@@ -46,8 +46,7 @@ impl Store {
                     card.created_at,
                     card.updated_at,
                 ],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -60,14 +59,12 @@ impl Store {
                         .prepare(
                             "SELECT message_id, column_name, position, created_at, updated_at
                              FROM kanban_cards WHERE column_name = ?1 ORDER BY position ASC",
-                        )
-                        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                        )?;
                     let rows = stmt
-                        .query_map(params![column_to_str(col)], row_to_kanban_card)
-                        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                        .query_map(params![column_to_str(col)], row_to_kanban_card)?;
                     let mut cards = Vec::new();
                     for row in rows {
-                        cards.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                        cards.push(row?);
                     }
                     Ok(cards)
                 }
@@ -76,14 +73,12 @@ impl Store {
                         .prepare(
                             "SELECT message_id, column_name, position, created_at, updated_at
                              FROM kanban_cards ORDER BY position ASC",
-                        )
-                        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                        )?;
                     let rows = stmt
-                        .query_map([], row_to_kanban_card)
-                        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+                        .query_map([], row_to_kanban_card)?;
                     let mut cards = Vec::new();
                     for row in rows {
-                        cards.push(row.map_err(|e| PebbleError::Storage(e.to_string()))?);
+                        cards.push(row?);
                     }
                     Ok(cards)
                 }
@@ -103,8 +98,7 @@ impl Store {
                 "UPDATE kanban_cards SET column_name = ?1, position = ?2, updated_at = ?3
                  WHERE message_id = ?4",
                 params![column_to_str(column), position, now, message_id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
@@ -114,8 +108,7 @@ impl Store {
             conn.execute(
                 "DELETE FROM kanban_cards WHERE message_id = ?1",
                 params![message_id],
-            )
-            .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            )?;
             Ok(())
         })
     }
