@@ -1,6 +1,18 @@
 use pebble_core::{PebbleError, Result};
 use rusqlite::Connection;
 
+const CURRENT_VERSION: u32 = 4;
+
+fn get_schema_version(conn: &Connection) -> u32 {
+    conn.pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap_or(0)
+}
+
+fn set_schema_version(conn: &Connection, version: u32) -> Result<()> {
+    conn.pragma_update(None, "user_version", version)
+        .map_err(|e| PebbleError::Storage(format!("Failed to set schema version: {e}")))
+}
+
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch("PRAGMA journal_mode=WAL;")
         .map_err(|e| PebbleError::Storage(e.to_string()))?;
@@ -8,8 +20,55 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch("PRAGMA foreign_keys=ON;")
         .map_err(|e| PebbleError::Storage(e.to_string()))?;
 
-    conn.execute_batch(SCHEMA_V1)
-        .map_err(|e| PebbleError::Storage(format!("Migration failed: {e}")))?;
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .map_err(|e| PebbleError::Storage(e.to_string()))?;
+
+    let version = get_schema_version(conn);
+
+    // V1: Initial schema
+    if version < 1 {
+        conn.execute_batch(SCHEMA_V1)
+            .map_err(|e| PebbleError::Storage(format!("Migration V1 failed: {e}")))?;
+        set_schema_version(conn, 1)?;
+    }
+
+    // V2: add content_id and is_inline columns to attachments
+    if version < 2 {
+        // Check if columns already exist (for databases created before version tracking)
+        let has_content_id: bool = conn
+            .prepare("SELECT content_id FROM attachments LIMIT 0")
+            .is_ok();
+        if !has_content_id {
+            conn.execute_batch(
+                "ALTER TABLE attachments ADD COLUMN content_id TEXT;
+                 ALTER TABLE attachments ADD COLUMN is_inline INTEGER NOT NULL DEFAULT 0;",
+            )
+            .map_err(|e| PebbleError::Storage(format!("Migration V2 failed: {e}")))?;
+        }
+        set_schema_version(conn, 2)?;
+    }
+
+    // V3: add missing indexes for performance
+    if version < 3 {
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_messages_account_remote ON messages(account_id, remote_id);
+             CREATE INDEX IF NOT EXISTS idx_snoozed_unsnoozed_at ON snoozed_messages(unsnoozed_at);
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_account_remote ON folders(account_id, remote_id);"
+        )
+        .map_err(|e| PebbleError::Storage(format!("Migration V3 failed: {e}")))?;
+        set_schema_version(conn, 3)?;
+    }
+
+    // V4: add indexes for folder joins, starred queries, and thread date sorting
+    if version < 4 {
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_message_folders_folder_id ON message_folders(folder_id);
+             CREATE INDEX IF NOT EXISTS idx_messages_account_starred ON messages(account_id, is_starred) WHERE is_starred = 1 AND is_deleted = 0;
+             CREATE INDEX IF NOT EXISTS idx_messages_thread_date ON messages(thread_id, date) WHERE thread_id IS NOT NULL AND is_deleted = 0;"
+        )
+        .map_err(|e| PebbleError::Storage(format!("Migration V4 failed: {e}")))?;
+        set_schema_version(conn, CURRENT_VERSION)?;
+    }
 
     Ok(())
 }
@@ -88,7 +147,9 @@ CREATE TABLE IF NOT EXISTS attachments (
     filename TEXT NOT NULL DEFAULT '',
     mime_type TEXT NOT NULL DEFAULT '',
     size INTEGER NOT NULL DEFAULT 0,
-    local_path TEXT
+    local_path TEXT,
+    content_id TEXT,
+    is_inline INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);

@@ -14,7 +14,7 @@ fn row_to_snoozed(row: &rusqlite::Row) -> rusqlite::Result<SnoozedMessage> {
 
 impl Store {
     pub fn snooze_message(&self, snooze: &SnoozedMessage) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO snoozed_messages (message_id, snoozed_at, unsnoozed_at, return_to)
                  VALUES (?1, ?2, ?3, ?4)",
@@ -31,7 +31,7 @@ impl Store {
     }
 
     pub fn list_snoozed_messages(&self) -> Result<Vec<SnoozedMessage>> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             let mut stmt = conn
                 .prepare(
                     "SELECT message_id, snoozed_at, unsnoozed_at, return_to
@@ -50,7 +50,7 @@ impl Store {
     }
 
     pub fn get_due_snoozed(&self, now: i64) -> Result<Vec<SnoozedMessage>> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             let mut stmt = conn
                 .prepare(
                     "SELECT message_id, snoozed_at, unsnoozed_at, return_to
@@ -69,7 +69,7 @@ impl Store {
     }
 
     pub fn unsnooze_message(&self, message_id: &str) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute(
                 "DELETE FROM snoozed_messages WHERE message_id = ?1",
                 params![message_id],

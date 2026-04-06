@@ -19,7 +19,7 @@ fn row_to_rule(row: &rusqlite::Row) -> rusqlite::Result<Rule> {
 
 impl Store {
     pub fn insert_rule(&self, rule: &Rule) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute(
                 "INSERT INTO rules (id, name, priority, conditions, actions, is_enabled, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -40,7 +40,7 @@ impl Store {
     }
 
     pub fn list_rules(&self) -> Result<Vec<Rule>> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             let mut stmt = conn
                 .prepare(
                     "SELECT id, name, priority, conditions, actions, is_enabled, created_at, updated_at
@@ -59,7 +59,7 @@ impl Store {
     }
 
     pub fn update_rule(&self, rule: &Rule) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute(
                 "UPDATE rules SET name = ?1, priority = ?2, conditions = ?3, actions = ?4,
                  is_enabled = ?5, updated_at = ?6 WHERE id = ?7",
@@ -79,7 +79,7 @@ impl Store {
     }
 
     pub fn delete_rule(&self, id: &str) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute("DELETE FROM rules WHERE id = ?1", params![id])
                 .map_err(|e| PebbleError::Storage(e.to_string()))?;
             Ok(())

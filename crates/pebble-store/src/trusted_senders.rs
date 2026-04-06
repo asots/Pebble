@@ -28,7 +28,7 @@ fn row_to_trusted_sender(row: &rusqlite::Row) -> rusqlite::Result<TrustedSender>
 
 impl Store {
     pub fn trust_sender(&self, sender: &TrustedSender) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO trusted_senders (account_id, email, trust_type, created_at)
                  VALUES (?1, ?2, ?3, ?4)",
@@ -45,7 +45,7 @@ impl Store {
     }
 
     pub fn is_trusted_sender(&self, account_id: &str, email: &str) -> Result<Option<TrustType>> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             let result = conn
                 .query_row(
                     "SELECT trust_type FROM trusted_senders WHERE account_id = ?1 AND email = ?2",
@@ -59,7 +59,7 @@ impl Store {
     }
 
     pub fn list_trusted_senders(&self, account_id: &str) -> Result<Vec<TrustedSender>> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             let mut stmt = conn
                 .prepare(
                     "SELECT account_id, email, trust_type, created_at
@@ -78,7 +78,7 @@ impl Store {
     }
 
     pub fn remove_trusted_sender(&self, account_id: &str, email: &str) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute(
                 "DELETE FROM trusted_senders WHERE account_id = ?1 AND email = ?2",
                 params![account_id, email],

@@ -1,4 +1,5 @@
 use pebble_core::{Folder, FolderRole, FolderType, PebbleError, Result};
+use rusqlite::OptionalExtension;
 
 use crate::Store;
 
@@ -43,22 +44,70 @@ fn str_to_folder_role(s: &str) -> Option<FolderRole> {
 
 impl Store {
     pub fn insert_folder(&self, folder: &Folder) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
+            // Upsert: if a folder with the same (account_id, remote_id) exists,
+            // update its name/role/sort_order instead of creating a duplicate.
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM folders WHERE account_id = ?1 AND remote_id = ?2",
+                    rusqlite::params![folder.account_id, folder.remote_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+
+            if let Some(existing_id) = existing {
+                conn.execute(
+                    "UPDATE folders SET name = ?1, folder_type = ?2, role = ?3, sort_order = ?4
+                     WHERE id = ?5",
+                    rusqlite::params![
+                        folder.name,
+                        folder_type_to_str(&folder.folder_type),
+                        folder.role.as_ref().map(folder_role_to_str),
+                        folder.sort_order,
+                        existing_id,
+                    ],
+                )
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            } else {
+                conn.execute(
+                    "INSERT INTO folders (id, account_id, remote_id, name, folder_type, role, parent_id, color, is_system, sort_order)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    rusqlite::params![
+                        folder.id,
+                        folder.account_id,
+                        folder.remote_id,
+                        folder.name,
+                        folder_type_to_str(&folder.folder_type),
+                        folder.role.as_ref().map(folder_role_to_str),
+                        folder.parent_id,
+                        folder.color,
+                        folder.is_system as i32,
+                        folder.sort_order,
+                    ],
+                )
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn find_folder_by_role(&self, account_id: &str, role: FolderRole) -> Result<Option<Folder>> {
+        let folders = self.list_folders(account_id)?;
+        Ok(folders.into_iter().find(|f| f.role == Some(role.clone())))
+    }
+
+    pub fn find_folder_by_name(&self, account_id: &str, name: &str) -> Result<Option<Folder>> {
+        let lower = name.to_lowercase();
+        let folders = self.list_folders(account_id)?;
+        Ok(folders.into_iter().find(|f| f.name.to_lowercase() == lower))
+    }
+
+    pub fn delete_folder_by_remote_id(&self, account_id: &str, remote_id: &str) -> Result<()> {
+        self.with_write(|conn| {
             conn.execute(
-                "INSERT INTO folders (id, account_id, remote_id, name, folder_type, role, parent_id, color, is_system, sort_order)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                rusqlite::params![
-                    folder.id,
-                    folder.account_id,
-                    folder.remote_id,
-                    folder.name,
-                    folder_type_to_str(&folder.folder_type),
-                    folder.role.as_ref().map(folder_role_to_str),
-                    folder.parent_id,
-                    folder.color,
-                    folder.is_system as i32,
-                    folder.sort_order,
-                ],
+                "DELETE FROM folders WHERE account_id = ?1 AND remote_id = ?2",
+                rusqlite::params![account_id, remote_id],
             )
             .map_err(|e| PebbleError::Storage(e.to_string()))?;
             Ok(())
@@ -66,7 +115,7 @@ impl Store {
     }
 
     pub fn list_folders(&self, account_id: &str) -> Result<Vec<Folder>> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             let mut stmt = conn
                 .prepare(
                     "SELECT id, account_id, remote_id, name, folder_type, role, parent_id, color, is_system, sort_order

@@ -4,7 +4,7 @@ use crate::Store;
 
 impl Store {
     pub fn save_translate_config(&self, config: &TranslateConfig) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute(
                 "INSERT INTO translate_config (id, provider_type, config, is_enabled, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -20,7 +20,7 @@ impl Store {
     }
 
     pub fn get_translate_config(&self) -> Result<Option<TranslateConfig>> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, provider_type, config, is_enabled, created_at, updated_at FROM translate_config WHERE id = 'active'"
             ).map_err(|e| PebbleError::Storage(e.to_string()))?;
@@ -43,7 +43,7 @@ impl Store {
     }
 
     pub fn delete_translate_config(&self) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute("DELETE FROM translate_config WHERE id = 'active'", [])
                 .map_err(|e| PebbleError::Storage(e.to_string()))?;
             Ok(())

@@ -31,7 +31,7 @@ fn row_to_kanban_card(row: &rusqlite::Row) -> rusqlite::Result<KanbanCard> {
 
 impl Store {
     pub fn upsert_kanban_card(&self, card: &KanbanCard) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute(
                 "INSERT INTO kanban_cards (message_id, column_name, position, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5)
@@ -53,7 +53,7 @@ impl Store {
     }
 
     pub fn list_kanban_cards(&self, column: Option<&KanbanColumn>) -> Result<Vec<KanbanCard>> {
-        self.with_conn(|conn| {
+        self.with_read(|conn| {
             match column {
                 Some(col) => {
                     let mut stmt = conn
@@ -97,7 +97,7 @@ impl Store {
         column: &KanbanColumn,
         position: i32,
     ) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             let now = pebble_core::now_timestamp();
             conn.execute(
                 "UPDATE kanban_cards SET column_name = ?1, position = ?2, updated_at = ?3
@@ -110,7 +110,7 @@ impl Store {
     }
 
     pub fn delete_kanban_card(&self, message_id: &str) -> Result<()> {
-        self.with_conn(|conn| {
+        self.with_write(|conn| {
             conn.execute(
                 "DELETE FROM kanban_cards WHERE message_id = ?1",
                 params![message_id],

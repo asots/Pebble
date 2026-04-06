@@ -1,6 +1,11 @@
 pub mod accounts;
+pub mod attachments;
+pub mod auth_data;
+pub mod cloud_sync;
+pub mod contacts;
 pub mod folders;
 pub mod kanban;
+pub mod labels;
 pub mod messages;
 pub mod migrations;
 pub mod rules;
@@ -9,47 +14,115 @@ pub mod translate_config;
 pub mod trusted_senders;
 
 use pebble_core::{PebbleError, Result};
-use rusqlite::Connection;
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
-use std::sync::Mutex;
 
 pub struct Store {
-    conn: Mutex<Connection>,
+    read_pool: Pool<SqliteConnectionManager>,
+    write_pool: Pool<SqliteConnectionManager>,
 }
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
-        let conn =
-            Connection::open(path).map_err(|e| PebbleError::Storage(e.to_string()))?;
+        let write_manager = SqliteConnectionManager::file(path).with_init(|conn| {
+            conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
+            Ok(())
+        });
+        let write_pool = Pool::builder()
+            .max_size(1)
+            .build(write_manager)
+            .map_err(|e| PebbleError::Storage(format!("Failed to create write pool: {e}")))?;
+
+        let read_manager = SqliteConnectionManager::file(path).with_init(|conn| {
+            conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")?;
+            Ok(())
+        });
+        let read_pool = Pool::builder()
+            .max_size(4)
+            .build(read_manager)
+            .map_err(|e| PebbleError::Storage(format!("Failed to create read pool: {e}")))?;
+
         let store = Self {
-            conn: Mutex::new(conn),
+            read_pool,
+            write_pool,
         };
         store.initialize()?;
         Ok(store)
     }
 
     pub fn open_in_memory() -> Result<Self> {
-        let conn =
-            Connection::open_in_memory().map_err(|e| PebbleError::Storage(e.to_string()))?;
+        // Use a uniquely-named shared-cache in-memory database so all
+        // connections in both pools see the same data.
+        let db_name = format!(
+            "file:pebble_{}?mode=memory&cache=shared",
+            pebble_core::new_id()
+        );
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+
+        let write_manager = SqliteConnectionManager::file(&db_name)
+            .with_flags(flags)
+            .with_init(|conn| {
+                conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+                Ok(())
+            });
+        let write_pool = Pool::builder()
+            .max_size(1)
+            .build(write_manager)
+            .map_err(|e| PebbleError::Storage(format!("Failed to create write pool: {e}")))?;
+
+        let read_manager = SqliteConnectionManager::file(&db_name)
+            .with_flags(flags)
+            .with_init(|conn| {
+                conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+                Ok(())
+            });
+        let read_pool = Pool::builder()
+            .max_size(2)
+            .build(read_manager)
+            .map_err(|e| PebbleError::Storage(format!("Failed to create read pool: {e}")))?;
+
         let store = Self {
-            conn: Mutex::new(conn),
+            read_pool,
+            write_pool,
         };
         store.initialize()?;
         Ok(store)
     }
 
     fn initialize(&self) -> Result<()> {
-        let conn = self.conn.lock()
-            .map_err(|e| PebbleError::Internal(format!("Lock poisoned: {e}")))?;
+        let conn = self
+            .write_pool
+            .get()
+            .map_err(|e| PebbleError::Internal(format!("Pool error: {e}")))?;
         migrations::run_migrations(&conn)
     }
 
-    pub(crate) fn with_conn<F, T>(&self, f: F) -> Result<T>
+    /// Obtain a read-only connection from the pool.
+    pub(crate) fn with_read<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&Connection) -> Result<T>,
     {
-        let conn = self.conn.lock()
-            .map_err(|e| PebbleError::Internal(format!("Lock poisoned: {e}")))?;
+        let conn = self
+            .read_pool
+            .get()
+            .map_err(|e| PebbleError::Internal(format!("Pool error: {e}")))?;
+        f(&conn)
+    }
+
+    /// Obtain the write connection from the pool.
+    pub(crate) fn with_write<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&Connection) -> Result<T>,
+    {
+        let conn = self
+            .write_pool
+            .get()
+            .map_err(|e| PebbleError::Internal(format!("Pool error: {e}")))?;
         f(&conn)
     }
 }
