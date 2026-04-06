@@ -433,6 +433,43 @@ pub async fn stop_sync(
     Ok(())
 }
 
+/// Rebuild the search index from all messages in the store (shared logic).
+pub fn do_reindex(store: &Store, search: &TantivySearch) -> std::result::Result<u32, PebbleError> {
+    search.clear_index()?;
+
+    let accounts = store.list_accounts()?;
+    let mut count: u32 = 0;
+
+    for account in &accounts {
+        let folders = store.list_folders(&account.id)?;
+        for folder in &folders {
+            let mut offset = 0u32;
+            let batch_size = 200u32;
+            loop {
+                let messages = store.list_full_messages_by_folder(&folder.id, batch_size, offset)?;
+                if messages.is_empty() {
+                    break;
+                }
+                for msg in &messages {
+                    if let Err(e) = search.index_message(msg, &[folder.id.clone()]) {
+                        warn!("Failed to index message {}: {}", msg.id, e);
+                    } else {
+                        count += 1;
+                    }
+                }
+                offset += messages.len() as u32;
+                if (messages.len() as u32) < batch_size {
+                    break;
+                }
+            }
+        }
+    }
+
+    search.commit()?;
+    info!("Reindexed {} messages", count);
+    Ok(count)
+}
+
 /// Rebuild the search index from all messages currently in the store.
 #[tauri::command]
 pub async fn reindex_search(
@@ -441,42 +478,7 @@ pub async fn reindex_search(
     let store = Arc::clone(&state.store);
     let search = Arc::clone(&state.search);
 
-    // Run the potentially expensive reindex on a blocking thread
-    tokio::task::spawn_blocking(move || {
-        search.clear_index()?;
-
-        let accounts = store.list_accounts()?;
-        let mut count: u32 = 0;
-
-        for account in &accounts {
-            let folders = store.list_folders(&account.id)?;
-            for folder in &folders {
-                let mut offset = 0u32;
-                let batch_size = 200u32;
-                loop {
-                    let messages = store.list_full_messages_by_folder(&folder.id, batch_size, offset)?;
-                    if messages.is_empty() {
-                        break;
-                    }
-                    for msg in &messages {
-                        if let Err(e) = search.index_message(msg, &[folder.id.clone()]) {
-                            warn!("Failed to index message {}: {}", msg.id, e);
-                        } else {
-                            count += 1;
-                        }
-                    }
-                    offset += messages.len() as u32;
-                    if (messages.len() as u32) < batch_size {
-                        break;
-                    }
-                }
-            }
-        }
-
-        search.commit()?;
-        info!("Reindexed {} messages", count);
-        Ok(count)
-    })
+    tokio::task::spawn_blocking(move || do_reindex(&store, &search))
     .await
     .map_err(|e| PebbleError::Internal(format!("Reindex task failed: {e}")))?
 }

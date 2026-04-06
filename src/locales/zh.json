@@ -188,7 +188,10 @@
     "hasAttachment": "有附件",
     "noResults": "未找到结果",
     "clearFilters": "清除筛选",
-    "advanced": "高级搜索"
+    "advanced": "高级搜索",
+    "searchButton": "搜索",
+    "folder": "文件夹",
+    "allFolders": "所有文件夹"
   },
   "shortcuts": {
     "title": "键盘快捷键",

@@ -8,9 +8,24 @@ use pebble_core::traits::SearchHit;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, Occur, Query, QueryParser, RangeQuery, TermQuery};
 use tantivy::schema::Value;
+use tantivy::schema::Schema;
 use tantivy::{DateTime, Index, IndexWriter, ReloadPolicy, Term, TantivyDocument};
 
 use schema::{build_schema, SearchSchema};
+
+const SNIPPET_MAX_LEN: usize = 150;
+
+fn make_snippet(doc: &TantivyDocument, field: tantivy::schema::Field) -> String {
+    let body = doc
+        .get_first(field)
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if body.len() > SNIPPET_MAX_LEN {
+        format!("{}…", &body[..body.floor_char_boundary(SNIPPET_MAX_LEN)])
+    } else {
+        body.to_string()
+    }
+}
 
 pub struct AdvancedSearchParams<'a> {
     pub text: Option<&'a str>,
@@ -29,28 +44,48 @@ pub struct TantivySearch {
     writer: Mutex<IndexWriter>,
     schema: SearchSchema,
     reader: tantivy::IndexReader,
+    needs_reindex: bool,
 }
 
 impl TantivySearch {
     pub fn open(index_path: &Path) -> Result<Self> {
         let ss = build_schema();
+
+        let create_fresh = |path: &Path, schema: &Schema| -> Result<Index> {
+            let _ = std::fs::remove_dir_all(path);
+            std::fs::create_dir_all(path)
+                .map_err(|e| PebbleError::Storage(format!("Failed to create index dir: {e}")))?;
+            let idx = Index::create_in_dir(path, schema.clone())
+                .map_err(|e| PebbleError::Storage(format!("Failed to create index: {e}")))?;
+            schema::register_tokenizers(&idx);
+            Ok(idx)
+        };
+
+        let mut needs_reindex = false;
         let index = if index_path.exists() {
             match Index::open_in_dir(index_path) {
-                Ok(idx) => idx,
-                Err(_) => {
-                    // Directory exists but index is corrupted/empty — recreate
-                    let _ = std::fs::remove_dir_all(index_path);
-                    std::fs::create_dir_all(index_path)
-                        .map_err(|e| PebbleError::Storage(format!("Failed to recreate index dir: {e}")))?;
-                    Index::create_in_dir(index_path, ss.schema.clone())
-                        .map_err(|e| PebbleError::Storage(format!("Failed to recreate index: {e}")))?
+                Ok(idx) => {
+                    schema::register_tokenizers(&idx);
+
+                    // Check if body_text is stored (new schema requires it)
+                    let existing_schema = idx.schema();
+                    let needs_rebuild = match existing_schema.get_field("body_text") {
+                        Ok(f) => !existing_schema.get_field_entry(f).is_stored(),
+                        Err(_) => true,
+                    };
+
+                    if needs_rebuild {
+                        tracing::info!("Search index schema outdated, rebuilding...");
+                        needs_reindex = true;
+                        create_fresh(index_path, &ss.schema)?
+                    } else {
+                        idx
+                    }
                 }
+                Err(_) => create_fresh(index_path, &ss.schema)?,
             }
         } else {
-            std::fs::create_dir_all(index_path)
-                .map_err(|e| PebbleError::Storage(format!("Failed to create index dir: {e}")))?;
-            Index::create_in_dir(index_path, ss.schema.clone())
-                .map_err(|e| PebbleError::Storage(format!("Failed to create index: {e}")))?
+            create_fresh(index_path, &ss.schema)?
         };
 
         let writer = index
@@ -68,12 +103,14 @@ impl TantivySearch {
             writer: Mutex::new(writer),
             schema: ss,
             reader,
+            needs_reindex,
         })
     }
 
     pub fn open_in_memory() -> Result<Self> {
         let ss = build_schema();
         let index = Index::create_in_ram(ss.schema.clone());
+        schema::register_tokenizers(&index);
 
         let writer = index
             .writer(15_000_000)
@@ -90,7 +127,19 @@ impl TantivySearch {
             writer: Mutex::new(writer),
             schema: ss,
             reader,
+            needs_reindex: false,
         })
+    }
+
+    /// Returns true if the index was rebuilt due to schema changes and needs re-population.
+    pub fn needs_reindex(&self) -> bool {
+        self.needs_reindex
+    }
+
+    /// Returns the number of documents in the index.
+    pub fn doc_count(&self) -> u64 {
+        let searcher = self.reader.searcher();
+        searcher.num_docs()
     }
 
     pub fn index_message(&self, msg: &Message, folder_ids: &[String]) -> Result<()> {
@@ -106,6 +155,8 @@ impl TantivySearch {
         let to_text: Vec<String> = msg
             .to_list
             .iter()
+            .chain(msg.cc_list.iter())
+            .chain(msg.bcc_list.iter())
             .map(|ea| {
                 if let Some(name) = &ea.name {
                     format!("{} {}", name, ea.address)
@@ -197,11 +248,7 @@ impl TantivySearch {
                 .unwrap_or("")
                 .to_string();
 
-            let snippet = doc
-                .get_first(ss.subject)
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            let snippet = make_snippet(&doc, ss.body_text);
 
             let subject = doc.get_first(ss.subject).and_then(|v| v.as_str()).map(|s| s.to_string());
             let from_address = doc.get_first(ss.from_address).and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -327,11 +374,7 @@ impl TantivySearch {
                 .unwrap_or("")
                 .to_string();
 
-            let snippet = doc
-                .get_first(ss.subject)
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            let snippet = make_snippet(&doc, ss.body_text);
 
             let subject = doc.get_first(ss.subject).and_then(|v| v.as_str()).map(|s| s.to_string());
             let from_address = doc.get_first(ss.from_address).and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -539,5 +582,83 @@ mod tests {
             })
             .unwrap();
         assert!(inbox_hits.is_empty(), "expected old folder mapping to be replaced");
+    }
+
+    #[test]
+    fn test_search_cjk_chinese() {
+        let engine = TantivySearch::open_in_memory().unwrap();
+        let msg = make_test_message(
+            "msg-cjk-1",
+            "项目进度汇报",
+            "本周已完成前端界面开发和后端接口对接",
+            "zhangsan@example.com",
+        );
+        engine.index_message(&msg, &["inbox".to_string()]).unwrap();
+        engine.commit().unwrap();
+
+        let hits = engine.search("前端界面", 10).unwrap();
+        assert!(!hits.is_empty(), "expected CJK body search to find the message");
+        assert_eq!(hits[0].message_id, "msg-cjk-1");
+
+        let hits2 = engine.search("项目进度", 10).unwrap();
+        assert!(!hits2.is_empty(), "expected CJK subject search to find the message");
+    }
+
+    #[test]
+    fn test_snippet_shows_body_not_subject() {
+        let engine = TantivySearch::open_in_memory().unwrap();
+        let msg = make_test_message(
+            "msg-snippet",
+            "Invoice from Acme",
+            "Please find the quarterly financial report attached to this email.",
+            "billing@acme.com",
+        );
+        engine.index_message(&msg, &["inbox".to_string()]).unwrap();
+        engine.commit().unwrap();
+
+        let hits = engine.search("quarterly", 10).unwrap();
+        assert!(!hits.is_empty());
+        assert!(
+            hits[0].snippet.contains("quarterly"),
+            "snippet should contain body text, got: {}",
+            hits[0].snippet
+        );
+        assert!(
+            !hits[0].snippet.contains("Invoice"),
+            "snippet should not be the subject"
+        );
+    }
+
+    #[test]
+    fn test_search_finds_cc_recipients() {
+        let engine = TantivySearch::open_in_memory().unwrap();
+        let mut msg = make_test_message(
+            "msg-cc",
+            "Team update",
+            "Weekly sync notes",
+            "lead@company.com",
+        );
+        msg.cc_list = vec![EmailAddress {
+            name: Some("Alice".to_string()),
+            address: "alice@company.com".to_string(),
+        }];
+        engine.index_message(&msg, &["inbox".to_string()]).unwrap();
+        engine.commit().unwrap();
+
+        let hits = engine
+            .advanced_search(AdvancedSearchParams {
+                text: None,
+                from: None,
+                to: Some("alice"),
+                subject: None,
+                date_from: None,
+                date_to: None,
+                has_attachment: None,
+                folder_id: None,
+                limit: 10,
+            })
+            .unwrap();
+        assert!(!hits.is_empty(), "expected CC recipient to be searchable via to filter");
+        assert_eq!(hits[0].message_id, "msg-cc");
     }
 }

@@ -2,7 +2,10 @@ use tantivy::schema::{
     DateOptions, Field, IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions,
     INDEXED, STORED, STRING,
 };
-use tantivy::DateTimePrecision;
+use tantivy::tokenizer::{NgramTokenizer, TextAnalyzer};
+use tantivy::{DateTimePrecision, Index};
+
+const NGRAM_TOKENIZER: &str = "ngram3";
 
 pub struct SearchSchema {
     pub schema: Schema,
@@ -26,19 +29,19 @@ pub fn build_schema() -> SearchSchema {
     let text_stored = TextOptions::default()
         .set_indexing_options(
             TextFieldIndexing::default()
-                .set_tokenizer("default")
+                .set_tokenizer(NGRAM_TOKENIZER)
                 .set_index_option(IndexRecordOption::WithFreqsAndPositions),
         )
         .set_stored();
 
     let text_only = TextOptions::default().set_indexing_options(
         TextFieldIndexing::default()
-            .set_tokenizer("default")
+            .set_tokenizer(NGRAM_TOKENIZER)
             .set_index_option(IndexRecordOption::WithFreqsAndPositions),
     );
 
     let subject = builder.add_text_field("subject", text_stored.clone());
-    let body_text = builder.add_text_field("body_text", text_only.clone());
+    let body_text = builder.add_text_field("body_text", text_stored.clone());
     let from_address = builder.add_text_field("from_address", text_stored.clone());
     let from_name = builder.add_text_field("from_name", text_stored);
     let to_addresses = builder.add_text_field("to_addresses", text_only);
@@ -66,4 +69,11 @@ pub fn build_schema() -> SearchSchema {
         account_id,
         has_attachment,
     }
+}
+
+/// Register custom tokenizers on the index. Must be called after index creation.
+pub fn register_tokenizers(index: &Index) {
+    let ngram = TextAnalyzer::builder(NgramTokenizer::new(2, 3, false).unwrap())
+        .build();
+    index.tokenizers().register(NGRAM_TOKENIZER, ngram);
 }

@@ -188,7 +188,10 @@
     "hasAttachment": "Has attachment",
     "noResults": "No results found",
     "clearFilters": "Clear filters",
-    "advanced": "Advanced search"
+    "advanced": "Advanced search",
+    "searchButton": "Search",
+    "folder": "Folder",
+    "allFolders": "All folders"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",

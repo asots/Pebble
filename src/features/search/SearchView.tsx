@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Search, SlidersHorizontal, Loader } from "lucide-react";
 import type { AdvancedSearchQuery, SearchHit } from "@/lib/api";
@@ -31,6 +31,7 @@ export default function SearchView() {
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const initialQueryRef = useRef<string | null>(null);
 
   const doSearch = useCallback(async () => {
     const trimmed = query.trim();
@@ -64,16 +65,24 @@ export default function SearchView() {
     if (storeQuery) {
       setQuery(storeQuery);
       useUIStore.getState().setSearchQuery("");
-      // Search immediately with the store query
-      setLoading(true);
-      setHasSearched(true);
-      searchMessages(storeQuery).then((hits) => {
-        setResults(hits);
-      }).finally(() => {
-        setLoading(false);
-      });
+      initialQueryRef.current = storeQuery;
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Search after mount if we had a store query
+  useEffect(() => {
+    if (initialQueryRef.current) {
+      initialQueryRef.current = null;
+      doSearch();
+    }
+  }, [doSearch]);
+
+  // Auto-search when filters change
+  useEffect(() => {
+    if (hasActiveFilters(filters) || query.trim()) {
+      doSearch();
+    }
+  }, [filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -109,11 +118,28 @@ export default function SearchView() {
           style={{
             flex: 1,
             border: "none",
+            outline: "none",
             backgroundColor: "transparent",
             fontSize: "14px",
             color: "var(--color-text-primary)",
           }}
         />
+        <button
+          type="submit"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "4px 8px",
+            color: "var(--color-accent)",
+            display: "flex",
+            alignItems: "center",
+            fontSize: "13px",
+            fontWeight: 500,
+          }}
+        >
+          {t("search.searchButton")}
+        </button>
         <button
           type="button"
           onClick={() => setShowFilters(!showFilters)}

@@ -1,5 +1,7 @@
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import type { AdvancedSearchQuery } from "@/lib/api";
+import type { AdvancedSearchQuery, Folder } from "@/lib/api";
+import { listAccounts, listFolders } from "@/lib/api";
 
 interface Props {
   filters: AdvancedSearchQuery;
@@ -9,6 +11,15 @@ interface Props {
 
 export default function SearchFilters({ filters, onChange, onClear }: Props) {
   const { t } = useTranslation();
+  const [folders, setFolders] = useState<Folder[]>([]);
+
+  useEffect(() => {
+    listAccounts().then((accounts) => {
+      Promise.all(accounts.map((a) => listFolders(a.id))).then((results) => {
+        setFolders(results.flat());
+      });
+    });
+  }, []);
 
   function update(patch: Partial<AdvancedSearchQuery>) {
     onChange({ ...filters, ...patch });
@@ -136,6 +147,20 @@ export default function SearchFilters({ filters, onChange, onClear }: Props) {
           >
             {t("search.hasAttachment")}
           </label>
+        </div>
+        <div style={fieldStyle}>
+          <label htmlFor="search-filter-folder" style={labelStyle}>{t("search.folder")}</label>
+          <select
+            id="search-filter-folder"
+            value={filters.folderId || ""}
+            onChange={(e) => update({ folderId: e.target.value || undefined })}
+            style={{ ...inputStyle, appearance: "auto" }}
+          >
+            <option value="">{t("search.allFolders")}</option>
+            {folders.map((f) => (
+              <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
+          </select>
         </div>
       </div>
       <button

@@ -47,7 +47,17 @@ pub fn run() {
             let index_path = get_index_path(app)?;
             tracing::info!("Search index path: {}", index_path.display());
             let search = pebble_search::TantivySearch::open(&index_path)?;
+            let search_needs_reindex = search.needs_reindex();
             tracing::info!("Search index initialized successfully");
+
+            if search_needs_reindex || search.doc_count() == 0 {
+                let reason = if search_needs_reindex { "schema migration" } else { "empty index" };
+                tracing::info!("Rebuilding search index ({reason})...");
+                match commands::sync_cmd::do_reindex(&store, &search) {
+                    Ok(n) => tracing::info!("Reindexed {n} messages ({reason})"),
+                    Err(e) => tracing::error!("Failed to reindex ({reason}): {e}"),
+                }
+            }
 
             let crypto = pebble_crypto::CryptoService::init()?;
             tracing::info!("Crypto service initialized successfully");
