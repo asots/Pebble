@@ -1,13 +1,8 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useEditor, useEditorState, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import { Markdown as MarkdownExtension } from "tiptap-markdown";
-import TurndownService from "turndown";
+import { useState, useEffect, useRef } from "react";
+import { EditorContent } from "@tiptap/react";
 import {
-  ArrowLeft, Send, Bold, Italic, Strikethrough, Heading1, Heading2,
-  List, ListOrdered, Quote, Code, Minus, Undo2, Redo2, X, AlertCircle,
-  Type, FileCode2, Hash, Link, Image, Eye, EyeOff,
+  ArrowLeft, Send, X, AlertCircle,
+  Type, FileCode2, Hash, Eye, EyeOff,
   Paperclip, FileText, Trash2, BookTemplate,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -16,52 +11,12 @@ import { useMailStore } from "@/stores/mail.store";
 import { useAccountsQuery } from "@/hooks/queries";
 import { useSendEmailMutation } from "@/hooks/mutations";
 import ContactAutocomplete from "@/components/ContactAutocomplete";
-import { hasComposeDraft } from "./compose-draft";
-import { getSignature } from "@/lib/signatures";
 import { listTemplates, saveTemplate, deleteTemplate } from "@/lib/templates";
 import type { EmailTemplate } from "@/lib/templates";
-import type { Editor } from "@tiptap/react";
-
-type EditorMode = "rich" | "markdown" | "html";
-
-const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
-
-const DRAFT_STORAGE_KEY = "pebble-compose-draft";
-
-interface DraftData {
-  to: string[];
-  cc: string[];
-  bcc: string[];
-  subject: string;
-  rawSource: string;
-  richTextHtml: string;
-  editorMode: EditorMode;
-  savedAt: number;
-}
-
-function saveDraftToStorage(draft: Omit<DraftData, "savedAt">) {
-  try {
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ ...draft, savedAt: Date.now() }));
-  } catch { /* quota exceeded — silently skip */ }
-}
-
-function loadDraftFromStorage(): DraftData | null {
-  try {
-    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!raw) return null;
-    const draft = JSON.parse(raw) as DraftData;
-    // Discard drafts older than 24 hours
-    if (Date.now() - draft.savedAt > 24 * 60 * 60 * 1000) {
-      localStorage.removeItem(DRAFT_STORAGE_KEY);
-      return null;
-    }
-    return draft;
-  } catch { return null; }
-}
-
-function clearDraftStorage() {
-  localStorage.removeItem(DRAFT_STORAGE_KEY);
-}
+import { useComposeRecipients } from "@/hooks/useComposeRecipients";
+import { useComposeDraft, loadDraftFromStorage, clearDraftStorage } from "@/hooks/useComposeDraft";
+import { useComposeEditor } from "@/hooks/useComposeEditor";
+import { ModeButton, EditorToolbar, MarkdownToolbar, composeStyles } from "./ComposeToolbar";
 
 export default function ComposeView() {
   const { t } = useTranslation();
@@ -74,54 +29,20 @@ export default function ComposeView() {
   const activeAccountId = useMailStore((s) => s.activeAccountId);
   const { data: accounts = [] } = useAccountsQuery();
 
-  const [fromAccountId, setFromAccountId] = useState(activeAccountId || "");
-  const currentAccount = accounts.find((a) => a.id === fromAccountId);
-  const myEmail = currentAccount?.email || "";
-
   const isReply = composeMode === "reply" || composeMode === "reply-all";
-  const restoredDraft = useRef<DraftData | null>(composeMode === "new" ? loadDraftFromStorage() : null);
+  const restoredDraft = useRef(composeMode === "new" ? loadDraftFromStorage() : null);
 
-  const [to, setTo] = useState<string[]>(() => {
-    if (restoredDraft.current) return restoredDraft.current.to;
-    if (!composeReplyTo) return [];
-    if (composeMode === "reply") return [composeReplyTo.from_address];
-    if (composeMode === "reply-all") {
-      const all = [composeReplyTo.from_address, ...composeReplyTo.to_list.map((a) => a.address)];
-      return [...new Set(all)].filter((addr) => addr !== myEmail);
-    }
-    return [];
+  // ─── Recipients ──────────────────────────────────────────────────────────────
+  const {
+    fromAccountId, setFromAccountId,
+    to, setTo, cc, setCc, bcc, setBcc,
+    showCc, setShowCc, showBcc, setShowBcc,
+  } = useComposeRecipients({
+    composeMode, composeReplyTo, accounts, activeAccountId,
+    restoredDraft: restoredDraft.current,
   });
 
-  const [cc, setCc] = useState<string[]>(() => {
-    if (restoredDraft.current) return restoredDraft.current.cc;
-    if (composeMode === "reply-all" && composeReplyTo) {
-      return composeReplyTo.cc_list.map((a) => a.address).filter((addr) => addr !== myEmail);
-    }
-    return [];
-  });
-
-  const [bcc, setBcc] = useState<string[]>(restoredDraft.current?.bcc ?? []);
-  const [showCc, setShowCc] = useState(() => cc.length > 0);
-  const [showBcc, setShowBcc] = useState(false);
-
-  // Re-calculate from/to/cc once accounts data loads (fixes reply-all with async data)
-  useEffect(() => {
-    if (accounts.length === 0) return;
-    // Determine the correct account ID using local variable (not stale state)
-    const newAccountId = (!fromAccountId || !accounts.find((a) => a.id === fromAccountId))
-      ? (activeAccountId || accounts[0]?.id || "")
-      : fromAccountId;
-    if (newAccountId !== fromAccountId) {
-      setFromAccountId(newAccountId);
-    }
-    // Re-filter to/cc to remove own email address using the resolved account
-    const resolvedEmail = accounts.find((a) => a.id === newAccountId)?.email || "";
-    if (composeReplyTo && resolvedEmail) {
-      setTo((prev) => prev.filter((addr) => addr !== resolvedEmail));
-      setCc((prev) => prev.filter((addr) => addr !== resolvedEmail));
-    }
-  }, [accounts]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // ─── Subject ─────────────────────────────────────────────────────────────────
   const [subject, setSubject] = useState(() => {
     if (restoredDraft.current) return restoredDraft.current.subject;
     if (!composeReplyTo) return "";
@@ -132,180 +53,37 @@ export default function ComposeView() {
   const [sendError, setSendError] = useState<string | null>(null);
   const sendMutation = useSendEmailMutation();
 
-  // Editor mode: rich (WYSIWYG), markdown (raw text), html (source)
-  const [editorMode, setEditorMode] = useState<EditorMode>(restoredDraft.current?.editorMode ?? "rich");
-  const [rawSource, setRawSource] = useState(restoredDraft.current?.rawSource ?? "");
-  const [richTextHtml, setRichTextHtml] = useState("");
-  const [htmlPreview, setHtmlPreview] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const attachInputRef = useRef<HTMLInputElement>(null);
+  // ─── Editor ──────────────────────────────────────────────────────────────────
+  const {
+    editor, editorMode, rawSource, setRawSource,
+    richTextHtml, htmlPreview, setHtmlPreview,
+    switchMode, textareaRef,
+  } = useComposeEditor({
+    fromAccountId, composeMode, composeReplyTo, isReply, t,
+    restoredDraft: restoredDraft.current,
+  });
+
+  // ─── Draft persistence ───────────────────────────────────────────────────────
+  useComposeDraft({
+    to, cc, bcc, subject, rawSource, richTextHtml, editorMode, composeMode,
+  });
+
   // ─── Attachments ─────────────────────────────────────────────────────────────
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<{ name: string; path: string; size: number }[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+
   // ─── Templates ───────────────────────────────────────────────────────────────
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState<EmailTemplate[]>(() => listTemplates());
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
 
-  // Snapshot the initial compose state so pre-populated reply/forward
-  // fields don't immediately trigger the "unsaved draft" guard.
-  const initialSnapshot = useRef<{
-    to: string[]; cc: string[]; bcc: string[]; subject: string;
-  } | null>(null);
-  if (!initialSnapshot.current) {
-    initialSnapshot.current = { to: [...to], cc: [...cc], bcc: [...bcc], subject };
-  }
-
-  const arraysEqual = useCallback(
-    (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]),
-    [],
-  );
-
-  // Track dirty state for leave-protection
-  useEffect(() => {
-    const init = initialSnapshot.current!;
-    const userChanged =
-      !arraysEqual(to, init.to) ||
-      !arraysEqual(cc, init.cc) ||
-      !arraysEqual(bcc, init.bcc) ||
-      subject !== init.subject ||
-      rawSource.trim().length > 0 ||
-      hasComposeDraft({ to: [], cc: [], bcc: [], subject: "", rawSource, richTextHtml });
-    useUIStore.getState().setComposeDirty(userChanged);
-  }, [arraysEqual, bcc, cc, rawSource, richTextHtml, subject, to]);
-
-  // Auto-save draft to localStorage (debounced 1s)
-  useEffect(() => {
-    if (!composeMode || composeMode !== "new") return;
-    const timer = setTimeout(() => {
-      const hasDraft = to.length > 0 || cc.length > 0 || bcc.length > 0 || subject.trim() || rawSource.trim() || richTextHtml.trim();
-      if (hasDraft) {
-        saveDraftToStorage({ to, cc, bcc, subject, rawSource, richTextHtml, editorMode });
-      }
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [to, cc, bcc, subject, rawSource, richTextHtml, editorMode, composeMode]);
-
   useEffect(() => {
     if (!sendError) return;
     const timer = setTimeout(() => setSendError(null), 5000);
     return () => clearTimeout(timer);
   }, [sendError]);
-
-  // Build signature HTML block
-  const signatureHtml = useMemo(() => {
-    const sig = getSignature(fromAccountId);
-    if (!sig) return "";
-    const esc = (s: string) =>
-      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
-    return `<br/><br/><div style="color:var(--color-text-secondary);font-size:13px">--<br/>${esc(sig)}</div>`;
-  }, [fromAccountId]);
-
-  const editorContent = useMemo(() => {
-    try {
-      const esc = (s: string) =>
-        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-      const extractBody = (html: string) => {
-        try {
-          const doc = new DOMParser().parseFromString(html, "text/html");
-          return doc.body.innerHTML;
-        } catch {
-          return `<p>${esc(html)}</p>`;
-        }
-      };
-
-      if (isReply && composeReplyTo) {
-        const sender = esc(composeReplyTo.from_name || composeReplyTo.from_address || "");
-        const dateStr = esc(new Date((composeReplyTo.date || 0) * 1000).toLocaleString());
-        const body = composeReplyTo.body_html_raw
-          ? extractBody(composeReplyTo.body_html_raw)
-          : `<p>${esc(composeReplyTo.body_text || "")}</p>`;
-        const attribution = t("compose.quoteAttribution", { date: dateStr, sender });
-        return `${signatureHtml}<br/><br/><blockquote><p>${esc(attribution)}</p>${body}</blockquote>`;
-      }
-      if (composeMode === "forward" && composeReplyTo) {
-        const sender = esc(composeReplyTo.from_name || composeReplyTo.from_address || "");
-        const fwdSubject = esc(composeReplyTo.subject || "");
-        const body = composeReplyTo.body_html_raw
-          ? extractBody(composeReplyTo.body_html_raw)
-          : `<p>${esc(composeReplyTo.body_text || "")}</p>`;
-        return `${signatureHtml}<br/><br/><p>${esc(t("compose.forwardedHeader"))}</p><p>${esc(t("compose.forwardedFrom", { sender }))}</p><p>${esc(t("compose.forwardedSubject", { subject: fwdSubject }))}</p>${body}`;
-      }
-      return signatureHtml;
-    } catch (err) {
-      console.error("[ComposeView] Failed to build editor content:", err);
-      return "";
-    }
-  }, [composeMode, composeReplyTo, isReply, t, signatureHtml]);
-
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
-      StarterKit,
-      Placeholder.configure({ placeholder: t("compose.editorPlaceholder", "Write your message...") }),
-      MarkdownExtension.configure({ html: true, transformPastedText: true }),
-    ],
-    content: "",
-  });
-
-  // Set editor content after creation to avoid initialization crashes
-  useEffect(() => {
-    if (editor && editorContent) {
-      editor.commands.setContent(editorContent);
-    }
-  }, [editor, editorContent]);
-
-  useEffect(() => {
-    if (!editor) {
-      return;
-    }
-
-    const syncRichTextHtml = () => {
-      setRichTextHtml(editor.getHTML());
-    };
-
-    syncRichTextHtml();
-    editor.on("update", syncRichTextHtml);
-
-    return () => {
-      editor.off("update", syncRichTextHtml);
-    };
-  }, [editor]);
-
-  // Switch between modes, syncing content
-  function switchMode(newMode: EditorMode) {
-    if (newMode === editorMode || !editor) return;
-
-    if (editorMode === "rich") {
-      // Leaving rich → capture content
-      if (newMode === "markdown") {
-        setRawSource(turndown.turndown(editor.getHTML()));
-      } else {
-        setRawSource(editor.getHTML());
-      }
-    } else if (editorMode === "markdown") {
-      // Leaving markdown
-      if (newMode === "rich") {
-        // The Markdown extension handles conversion from markdown to HTML
-        editor.commands.setContent(rawSource);
-      } else {
-        // markdown → html: convert via temp editor set
-        editor.commands.setContent(rawSource);
-        setRawSource(editor.getHTML());
-      }
-    } else {
-      // Leaving html
-      if (newMode === "rich") {
-        editor.commands.setContent(rawSource);
-      } else {
-        setRawSource(turndown.turndown(rawSource));
-      }
-    }
-
-    setEditorMode(newMode);
-  }
 
   function handleSend() {
     if (!fromAccountId || to.length === 0) return;
@@ -319,16 +97,14 @@ export default function ComposeView() {
       bodyText = editor.getText();
     } else if (editorMode === "html") {
       bodyHtml = rawSource;
-      // Strip tags for plain text fallback
       const tmp = document.createElement("div");
       tmp.innerHTML = rawSource;
       bodyText = tmp.textContent || tmp.innerText || "";
     } else {
-      // markdown mode — convert to HTML via editor
       if (editor) {
         editor.commands.setContent(rawSource);
         bodyHtml = editor.getHTML();
-        bodyText = rawSource; // markdown is already readable plain text
+        bodyText = rawSource;
       }
     }
 
@@ -386,7 +162,7 @@ export default function ComposeView() {
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <button
             onClick={closeCompose}
-            style={backBtnStyle}
+            style={composeStyles.backBtn}
             onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-hover, rgba(0,0,0,0.04))"; }}
             onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
           >
@@ -442,8 +218,8 @@ export default function ComposeView() {
         <div style={{ maxWidth: "768px", width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", flex: 1 }}>
           {/* From */}
           {accounts.length > 1 && (
-            <div style={fieldRowStyle}>
-              <span style={fieldLabelStyle}>{t("compose.from", "From")}</span>
+            <div style={composeStyles.fieldRow}>
+              <span style={composeStyles.fieldLabel}>{t("compose.from", "From")}</span>
               <select
                 value={fromAccountId}
                 onChange={(e) => setFromAccountId(e.target.value)}
@@ -463,32 +239,32 @@ export default function ComposeView() {
           )}
 
           {/* To */}
-          <div style={fieldRowStyle}>
-            <span style={fieldLabelStyle}>{t("compose.to", "To")}</span>
+          <div style={composeStyles.fieldRow}>
+            <span style={composeStyles.fieldLabel}>{t("compose.to", "To")}</span>
             <ContactAutocomplete value={to} onChange={setTo} accountId={fromAccountId} placeholder="recipient@example.com" />
             <div style={{ display: "flex", gap: "4px", padding: "0 8px", flexShrink: 0 }}>
-              {!showCc && <button onClick={() => setShowCc(true)} style={toggleBtnStyle}>{t("compose.cc", "Cc")}</button>}
-              {!showBcc && <button onClick={() => setShowBcc(true)} style={toggleBtnStyle}>{t("compose.bcc", "Bcc")}</button>}
+              {!showCc && <button onClick={() => setShowCc(true)} style={composeStyles.toggleBtn}>{t("compose.cc", "Cc")}</button>}
+              {!showBcc && <button onClick={() => setShowBcc(true)} style={composeStyles.toggleBtn}>{t("compose.bcc", "Bcc")}</button>}
             </div>
           </div>
 
           {showCc && (
-            <div style={fieldRowStyle}>
-              <span style={fieldLabelStyle}>{t("compose.cc", "Cc")}</span>
+            <div style={composeStyles.fieldRow}>
+              <span style={composeStyles.fieldLabel}>{t("compose.cc", "Cc")}</span>
               <ContactAutocomplete value={cc} onChange={setCc} accountId={fromAccountId} placeholder="cc@example.com" />
             </div>
           )}
 
           {showBcc && (
-            <div style={fieldRowStyle}>
-              <span style={fieldLabelStyle}>{t("compose.bcc", "Bcc")}</span>
+            <div style={composeStyles.fieldRow}>
+              <span style={composeStyles.fieldLabel}>{t("compose.bcc", "Bcc")}</span>
               <ContactAutocomplete value={bcc} onChange={setBcc} accountId={fromAccountId} placeholder="bcc@example.com" />
             </div>
           )}
 
           {/* Subject */}
-          <div style={fieldRowStyle}>
-            <span style={fieldLabelStyle}>{t("compose.subject", "Subject")}</span>
+          <div style={composeStyles.fieldRow}>
+            <span style={composeStyles.fieldLabel}>{t("compose.subject", "Subject")}</span>
               <input
                 type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
                 placeholder={t("compose.subject", "Subject")}
@@ -740,8 +516,6 @@ export default function ComposeView() {
               const newAttachments: { name: string; path: string; size: number }[] = [];
               for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                // In Tauri, dropped files expose path via webkitRelativePath or we can use the name
-                // Tauri's drag events provide file paths through the data transfer
                 const path = (file as unknown as { path?: string }).path || file.name;
                 newAttachments.push({ name: file.name, path, size: file.size });
               }
@@ -872,195 +646,3 @@ export default function ComposeView() {
     </div>
   );
 }
-
-// ─── Mode Button ───────────────────────────────────────────────────────────────
-
-function ModeButton({ icon: Icon, label, active, onClick }: {
-  icon: React.ElementType; label: string; active: boolean; onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={label}
-      style={{
-        display: "flex", alignItems: "center", gap: "4px",
-        padding: "4px 8px", borderRadius: "4px",
-        border: "none", cursor: "pointer",
-        fontSize: "11px", fontWeight: active ? 600 : 400,
-        backgroundColor: active ? "var(--color-bg-secondary, rgba(0,0,0,0.08))" : "transparent",
-        color: active ? "var(--color-accent, #2563eb)" : "var(--color-text-secondary)",
-        transition: "background-color 0.1s ease",
-      }}
-      onMouseEnter={(e) => { if (!active) e.currentTarget.style.backgroundColor = "var(--color-bg-hover, rgba(0,0,0,0.04))"; }}
-      onMouseLeave={(e) => { if (!active) e.currentTarget.style.backgroundColor = "transparent"; }}
-    >
-      <Icon size={13} />
-      {label}
-    </button>
-  );
-}
-
-// ─── Editor Toolbar ────────────────────────────────────────────────────────────
-
-function EditorToolbar({ editor }: { editor: Editor }) {
-  const { t } = useTranslation();
-
-  const activeStates = useEditorState({
-    editor,
-    selector: ({ editor: e }) => ({
-      bold: e.isActive("bold"),
-      italic: e.isActive("italic"),
-      strike: e.isActive("strike"),
-      h1: e.isActive("heading", { level: 1 }),
-      h2: e.isActive("heading", { level: 2 }),
-      bulletList: e.isActive("bulletList"),
-      orderedList: e.isActive("orderedList"),
-      blockquote: e.isActive("blockquote"),
-      codeBlock: e.isActive("codeBlock"),
-    }),
-  });
-
-  function btn(icon: React.ElementType, label: string, action: () => void, active?: boolean) {
-    return { icon, label, action, active };
-  }
-
-  const items = [
-    btn(Bold, t("compose.toolbar.bold", "Bold"), () => editor.chain().focus().toggleBold().run(), activeStates.bold),
-    btn(Italic, t("compose.toolbar.italic", "Italic"), () => editor.chain().focus().toggleItalic().run(), activeStates.italic),
-    btn(Strikethrough, t("compose.toolbar.strike", "Strikethrough"), () => editor.chain().focus().toggleStrike().run(), activeStates.strike),
-    btn(Heading1, t("compose.toolbar.heading1"), () => editor.chain().focus().toggleHeading({ level: 1 }).run(), activeStates.h1),
-    btn(Heading2, t("compose.toolbar.heading2"), () => editor.chain().focus().toggleHeading({ level: 2 }).run(), activeStates.h2),
-    btn(List, t("compose.toolbar.bulletList", "Bullet list"), () => editor.chain().focus().toggleBulletList().run(), activeStates.bulletList),
-    btn(ListOrdered, t("compose.toolbar.orderedList", "Ordered list"), () => editor.chain().focus().toggleOrderedList().run(), activeStates.orderedList),
-    btn(Quote, t("compose.toolbar.blockquote", "Quote"), () => editor.chain().focus().toggleBlockquote().run(), activeStates.blockquote),
-    btn(Code, t("compose.toolbar.code", "Code"), () => editor.chain().focus().toggleCodeBlock().run(), activeStates.codeBlock),
-    btn(Minus, t("compose.toolbar.hr", "Divider"), () => editor.chain().focus().setHorizontalRule().run()),
-    btn(Undo2, t("compose.toolbar.undo", "Undo"), () => editor.chain().focus().undo().run()),
-    btn(Redo2, t("compose.toolbar.redo", "Redo"), () => editor.chain().focus().redo().run()),
-  ];
-
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "2px", padding: "6px 8px" }}>
-      {items.map((item, i) => {
-        const Icon = item.icon;
-        return (
-          <button
-            key={i}
-            onClick={item.action}
-            title={item.label}
-            aria-label={item.label}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: "28px", height: "28px", borderRadius: "4px",
-              border: "none", cursor: "pointer",
-              backgroundColor: item.active ? "var(--color-bg-secondary, rgba(0,0,0,0.08))" : "transparent",
-              color: item.active ? "var(--color-accent, #2563eb)" : "var(--color-text-secondary)",
-              transition: "background-color 0.1s ease, color 0.1s ease",
-            }}
-            onMouseEnter={(e) => { if (!item.active) e.currentTarget.style.backgroundColor = "var(--color-bg-hover, rgba(0,0,0,0.04))"; }}
-            onMouseLeave={(e) => { if (!item.active) e.currentTarget.style.backgroundColor = "transparent"; }}
-          >
-            <Icon size={15} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Markdown Toolbar ─────────────────────────────────────────────────────────
-
-function MarkdownToolbar({ textareaRef, onInsert, source }: {
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
-  onInsert: (value: string) => void;
-  source: string;
-}) {
-  const { t } = useTranslation();
-
-  function insert(before: string, after = "", placeholder = "") {
-    const ta = textareaRef.current;
-    if (!ta) {
-      onInsert(source + before + placeholder + after);
-      return;
-    }
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const selected = source.slice(start, end) || placeholder;
-    const newText = source.slice(0, start) + before + selected + after + source.slice(end);
-    onInsert(newText);
-    // Restore cursor position after React re-render
-    requestAnimationFrame(() => {
-      ta.focus();
-      const cursorPos = start + before.length + selected.length;
-      ta.setSelectionRange(cursorPos, cursorPos);
-    });
-  }
-
-  const items = [
-    { icon: Bold, label: t("compose.toolbar.bold", "Bold"), action: () => insert("**", "**", "bold") },
-    { icon: Italic, label: t("compose.toolbar.italic", "Italic"), action: () => insert("*", "*", "italic") },
-    { icon: Strikethrough, label: t("compose.toolbar.strike", "Strikethrough"), action: () => insert("~~", "~~", "text") },
-    { icon: Heading1, label: t("compose.toolbar.heading1"), action: () => insert("\n# ", "\n", "heading") },
-    { icon: Heading2, label: t("compose.toolbar.heading2"), action: () => insert("\n## ", "\n", "heading") },
-    { icon: List, label: t("compose.toolbar.bulletList", "Bullet list"), action: () => insert("\n- ", "") },
-    { icon: ListOrdered, label: t("compose.toolbar.orderedList", "Ordered list"), action: () => insert("\n1. ", "") },
-    { icon: Quote, label: t("compose.toolbar.blockquote", "Quote"), action: () => insert("\n> ", "") },
-    { icon: Code, label: t("compose.toolbar.code", "Code"), action: () => insert("`", "`", "code") },
-    { icon: Minus, label: t("compose.toolbar.hr", "Divider"), action: () => insert("\n---\n", "") },
-    { icon: Link, label: t("compose.toolbar.link", "Link"), action: () => insert("[", "](url)", "text") },
-    { icon: Image, label: t("compose.toolbar.image", "Image"), action: () => insert("![", "](url)", "alt") },
-  ];
-
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "2px", padding: "6px 8px" }}>
-      {items.map((item, i) => {
-        const Icon = item.icon;
-        return (
-          <button
-            key={i}
-            onClick={item.action}
-            title={item.label}
-            aria-label={item.label}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: "28px", height: "28px", borderRadius: "4px",
-              border: "none", cursor: "pointer",
-              backgroundColor: "transparent",
-              color: "var(--color-text-secondary)",
-              transition: "background-color 0.1s ease",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-bg-hover, rgba(0,0,0,0.04))"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
-          >
-            <Icon size={15} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Shared Styles ─────────────────────────────────────────────────────────────
-
-const fieldLabelStyle: React.CSSProperties = {
-  padding: "8px 0", fontSize: "13px", color: "var(--color-text-secondary)",
-  width: "52px", flexShrink: 0, textAlign: "right", marginRight: "8px",
-};
-
-const fieldRowStyle: React.CSSProperties = {
-  display: "flex", alignItems: "center",
-  borderBottom: "1px solid var(--color-border)",
-};
-
-const toggleBtnStyle: React.CSSProperties = {
-  padding: "4px 8px", border: "none", background: "none", cursor: "pointer",
-  color: "var(--color-text-secondary)", fontSize: "12px", whiteSpace: "nowrap",
-  borderRadius: "4px",
-};
-
-const backBtnStyle: React.CSSProperties = {
-  display: "flex", alignItems: "center", gap: "4px",
-  background: "none", border: "none", cursor: "pointer",
-  color: "var(--color-text-secondary)", fontSize: "13px",
-  padding: "4px 8px", borderRadius: "4px",
-};
