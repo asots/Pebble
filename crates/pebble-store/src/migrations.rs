@@ -15,6 +15,7 @@ fn set_schema_version(conn: &Connection, version: u32) -> Result<()> {
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
 
     conn.execute_batch("PRAGMA foreign_keys=ON;")?;
 
