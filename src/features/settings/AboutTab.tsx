@@ -88,7 +88,7 @@ export default function AboutTab() {
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", lineHeight: 1.7, margin: "0 0 8px" }}>
           {t(
             "about.description",
-            "A privacy-first desktop email client built with Rust and React. Your data stays on your device — no telemetry, no third-party data access.",
+            "A privacy-first desktop email client built with Rust and React. Mail, search index, and attachments stay on your device. No telemetry. Optional features like translation send only the selected text to the provider you configure.",
           )}
         </p>
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", lineHeight: 1.7, margin: "0 0 8px" }}>

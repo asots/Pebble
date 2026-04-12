@@ -183,7 +183,7 @@ function OfflineBanner() {
       color: "#ef4444", fontSize: "12px",
     }}>
       <WifiOff size={14} />
-      {i18next.t("status.offline", "Offline")} — {i18next.t("status.offlineHint", "Actions will be queued and retried when connection is restored")}
+      {i18next.t("status.offline", "Offline")} — {i18next.t("status.offlineHint", "Mail sync is paused until you're back online")}
     </div>
   );
 }

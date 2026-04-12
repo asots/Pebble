@@ -12,7 +12,7 @@ export default function PrivacyTab() {
   const activeAccountId = useMailStore((s) => s.activeAccountId);
   const [trustedSenders, setTrustedSenders] = useState<TrustedSender[]>([]);
   const [privacyMode, setPrivacyMode] = useState<"strict" | "relaxed" | "off">(() => {
-    return (localStorage.getItem(PRIVACY_MODE_KEY) as "strict" | "relaxed" | "off") || "relaxed";
+    return (localStorage.getItem(PRIVACY_MODE_KEY) as "strict" | "relaxed" | "off") || "strict";
   });
 
   useEffect(() => {
@@ -106,7 +106,9 @@ export default function PrivacyTab() {
       }}>
         <strong>{t("privacy.trackerBlocking", "Tracker blocking")}</strong>
         <p style={{ margin: "4px 0 0", color: "var(--color-text-secondary)", fontSize: "12px" }}>
-          {t("privacy.trackerBlockingDesc", "Known tracking pixels and tracker domains are always blocked regardless of privacy mode.")}
+          {privacyMode === "off"
+            ? t("privacy.trackerBlockingOff", "Tracker blocking is disabled in Off mode. All images and trackers are loaded directly.")
+            : t("privacy.trackerBlockingDesc", "Known tracking pixels and tracker domains are always blocked regardless of privacy mode.")}
         </p>
       </div>
 

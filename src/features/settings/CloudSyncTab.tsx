@@ -5,7 +5,9 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   testWebdavConnection,
   backupToWebdav,
+  previewWebdavBackup,
   restoreFromWebdav,
+  type BackupPreview,
 } from "../../lib/api";
 
 /** Extract a readable message from Tauri invoke errors (which may be strings, Error, or plain objects). */
@@ -110,7 +112,23 @@ export default function CloudSyncTab() {
     }
   }
 
-  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [restorePreview, setRestorePreview] = useState<BackupPreview | null>(null);
+
+  async function handleRestoreClick() {
+    setRestoring(true);
+    setStatusMsg("");
+    try {
+      const preview = await previewWebdavBackup(url, username, password);
+      setRestorePreview(preview);
+    } catch (err: unknown) {
+      setStatusMsg(
+        t("cloudSync.restoreFailed", { error: errorMessage(err) }),
+      );
+      setStatusType("error");
+    } finally {
+      setRestoring(false);
+    }
+  }
 
   async function doRestore() {
     setRestoring(true);
@@ -244,7 +262,7 @@ export default function CloudSyncTab() {
             color: "var(--color-text-primary)",
             opacity: anyLoading ? 0.6 : 1,
           }}
-          onClick={() => setShowRestoreConfirm(true)}
+          onClick={handleRestoreClick}
           disabled={anyLoading}
         >
           {restoring ? t("common.loading") : t("cloudSync.restore", "Restore Settings Backup")}
@@ -266,18 +284,36 @@ export default function CloudSyncTab() {
         )}
       </div>
 
-      {/* Restore confirmation */}
-      {showRestoreConfirm && (
+      {/* Restore confirmation with backup preview */}
+      {restorePreview && (
         <ConfirmDialog
           title={t("cloudSync.restore", "Restore Settings Backup")}
-          message={t(
-            "cloudSync.restoreConfirm",
-            "This will replace your local rules, cards, and saved account metadata with the backup. Reauthentication will still be required. Continue?",
-          )}
+          message={
+            t("cloudSync.restorePreviewHeader", "Backup contents to restore:") +
+            "\n" +
+            t("cloudSync.restorePreviewSchema", "Schema version: {{version}}", { version: restorePreview.version }) +
+            "\n" +
+            t("cloudSync.restorePreviewExported", "Exported: {{date}}", {
+              date: new Date(restorePreview.exported_at * 1000).toLocaleString(),
+            }) +
+            "\n" +
+            t("cloudSync.restorePreviewAccounts", "Accounts: {{count}}", { count: restorePreview.account_count }) +
+            "\n" +
+            t("cloudSync.restorePreviewRules", "Rules: {{count}}", { count: restorePreview.rule_count }) +
+            "\n" +
+            t("cloudSync.restorePreviewKanban", "Kanban cards: {{count}}", { count: restorePreview.kanban_card_count }) +
+            "\n" +
+            t("cloudSync.restorePreviewSize", "Size: {{kb}} KB", { kb: (restorePreview.size_bytes / 1024).toFixed(1) }) +
+            "\n\n" +
+            t(
+              "cloudSync.restoreConfirm",
+              "This will replace your local rules, cards, and saved account metadata with the backup. Reauthentication will still be required. Continue?",
+            )
+          }
           destructive
-          onCancel={() => setShowRestoreConfirm(false)}
+          onCancel={() => setRestorePreview(null)}
           onConfirm={() => {
-            setShowRestoreConfirm(false);
+            setRestorePreview(null);
             doRestore();
           }}
         />

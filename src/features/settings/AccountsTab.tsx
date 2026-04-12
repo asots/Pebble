@@ -7,6 +7,7 @@ import { deleteAccount, updateAccount, testAccountConnection } from "@/lib/api";
 import type { Account, ConnectionSecurity } from "@/lib/api";
 import { useAccountsQuery, accountsQueryKey } from "@/hooks/queries";
 import { useMailStore } from "@/stores/mail.store";
+import { useToastStore } from "@/stores/toast.store";
 import AccountSetup from "@/components/AccountSetup";
 import { extractErrorMessage } from "@/lib/extractErrorMessage";
 import { getSignature, setSignature } from "@/lib/signatures";
@@ -42,8 +43,16 @@ export default function AccountsTab() {
         useMailStore.getState().setActiveAccountId(null);
       }
       await queryClient.invalidateQueries({ queryKey: accountsQueryKey });
+      useToastStore.getState().addToast({
+        message: t("settings.deleteAccountSuccess", "Account removed"),
+        type: "success",
+      });
     } catch (err) {
-      console.error("Failed to delete account:", err);
+      const msg = extractErrorMessage(err);
+      useToastStore.getState().addToast({
+        message: t("settings.deleteAccountFailed", "Failed to remove account: {{error}}", { error: msg }),
+        type: "error",
+      });
     }
   }
 
@@ -326,6 +335,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
   const [signature, setSignatureValue] = useState(() => getSignature(account.id));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isOAuth = account.provider === "gmail" || account.provider === "outlook";
 
   useEffect(() => {
     const previousFocus =
@@ -458,62 +468,83 @@ function EditAccountModal({ account, onClose, onSaved }: {
               <label style={labelStyle}>{t("accountSetup.emailAddress")}</label>
               <input ref={emailInputRef} style={inputStyle} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
-            <div style={fieldStyle}>
-              <label style={labelStyle}>{t("accountSetup.password")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.leaveEmptyKeep", "leave empty to keep current")})</span></label>
-              <input style={inputStyle} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </div>
+            {isOAuth ? (
+              <div
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: "6px",
+                  backgroundColor: "rgba(59,130,246,0.08)",
+                  border: "1px solid rgba(59,130,246,0.25)",
+                  color: "var(--color-text-secondary)",
+                  fontSize: "12px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {t(
+                  "settings.oauthAccountNote",
+                  "This account uses OAuth — sign-in, password, IMAP/SMTP, and proxy are managed by the provider and not editable here."
+                )}
+              </div>
+            ) : (
+              <>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>{t("accountSetup.password")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.leaveEmptyKeep", "leave empty to keep current")})</span></label>
+                  <input style={inputStyle} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "12px" }}>
-              <div style={fieldStyle}>
-                <label style={labelStyle}>{t("accountSetup.imapHost")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
-                <input style={inputStyle} type="text" value={imapHost} onChange={(e) => setImapHost(e.target.value)} placeholder={t("settings.leaveEmptyKeep")} />
-              </div>
-              <div style={fieldStyle}>
-                <label style={labelStyle}>{t("accountSetup.imapPort")}</label>
-                <input style={{ ...inputStyle, width: "70px" }} type="number" value={imapPort} onChange={(e) => setImapPort(e.target.value)} />
-              </div>
-              <div style={fieldStyle}>
-                <label style={labelStyle}>{t("accountSetup.security", "Security")}</label>
-                <select value={imapSecurity} onChange={(e) => setImapSecurity(e.target.value as ConnectionSecurity | "")} style={{ ...inputStyle, width: "110px" }}>
-                  <option value="">{t("settings.leaveEmptyKeep", "keep current")}</option>
-                  <option value="tls">{t("accountSetup.securityTls", "SSL/TLS")}</option>
-                  <option value="starttls">{t("accountSetup.securityStarttls", "STARTTLS")}</option>
-                  <option value="plain">{t("accountSetup.securityPlain", "None")}</option>
-                </select>
-              </div>
-            </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "12px" }}>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>{t("accountSetup.imapHost")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
+                    <input style={inputStyle} type="text" value={imapHost} onChange={(e) => setImapHost(e.target.value)} placeholder={t("settings.leaveEmptyKeep")} />
+                  </div>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>{t("accountSetup.imapPort")}</label>
+                    <input style={{ ...inputStyle, width: "70px" }} type="number" value={imapPort} onChange={(e) => setImapPort(e.target.value)} />
+                  </div>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>{t("accountSetup.security", "Security")}</label>
+                    <select value={imapSecurity} onChange={(e) => setImapSecurity(e.target.value as ConnectionSecurity | "")} style={{ ...inputStyle, width: "110px" }}>
+                      <option value="">{t("settings.leaveEmptyKeep", "keep current")}</option>
+                      <option value="tls">{t("accountSetup.securityTls", "SSL/TLS")}</option>
+                      <option value="starttls">{t("accountSetup.securityStarttls", "STARTTLS")}</option>
+                      <option value="plain">{t("accountSetup.securityPlain", "None")}</option>
+                    </select>
+                  </div>
+                </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "12px" }}>
-              <div style={fieldStyle}>
-                <label style={labelStyle}>{t("accountSetup.smtpHost")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
-                <input style={inputStyle} type="text" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} placeholder={t("settings.leaveEmptyKeep")} />
-              </div>
-              <div style={fieldStyle}>
-                <label style={labelStyle}>{t("accountSetup.smtpPort")}</label>
-                <input style={{ ...inputStyle, width: "70px" }} type="number" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
-              </div>
-              <div style={fieldStyle}>
-                <label style={labelStyle}>{t("accountSetup.security", "Security")}</label>
-                <select value={smtpSecurity} onChange={(e) => setSmtpSecurity(e.target.value as ConnectionSecurity | "")} style={{ ...inputStyle, width: "110px" }}>
-                  <option value="">{t("settings.leaveEmptyKeep", "keep current")}</option>
-                  <option value="tls">{t("accountSetup.securityTls", "SSL/TLS")}</option>
-                  <option value="starttls">{t("accountSetup.securityStarttls", "STARTTLS")}</option>
-                  <option value="plain">{t("accountSetup.securityPlain", "None")}</option>
-                </select>
-              </div>
-            </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "12px" }}>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>{t("accountSetup.smtpHost")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
+                    <input style={inputStyle} type="text" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} placeholder={t("settings.leaveEmptyKeep")} />
+                  </div>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>{t("accountSetup.smtpPort")}</label>
+                    <input style={{ ...inputStyle, width: "70px" }} type="number" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
+                  </div>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>{t("accountSetup.security", "Security")}</label>
+                    <select value={smtpSecurity} onChange={(e) => setSmtpSecurity(e.target.value as ConnectionSecurity | "")} style={{ ...inputStyle, width: "110px" }}>
+                      <option value="">{t("settings.leaveEmptyKeep", "keep current")}</option>
+                      <option value="tls">{t("accountSetup.securityTls", "SSL/TLS")}</option>
+                      <option value="starttls">{t("accountSetup.securityStarttls", "STARTTLS")}</option>
+                      <option value="plain">{t("accountSetup.securityPlain", "None")}</option>
+                    </select>
+                  </div>
+                </div>
 
-            {/* SOCKS5 Proxy */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px" }}>
-              <div style={fieldStyle}>
-                <label style={labelStyle}>{t("accountSetup.proxyHost", "SOCKS5 Proxy")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
-                <input style={inputStyle} type="text" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} placeholder="127.0.0.1" />
-              </div>
-              <div style={fieldStyle}>
-                <label style={labelStyle}>{t("accountSetup.proxyPort", "Port")}</label>
-                <input style={{ ...inputStyle, width: "80px" }} type="number" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} placeholder="7890" />
-              </div>
-            </div>
+                {/* SOCKS5 Proxy */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px" }}>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>{t("accountSetup.proxyHost", "SOCKS5 Proxy")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
+                    <input style={inputStyle} type="text" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} placeholder="127.0.0.1" />
+                  </div>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>{t("accountSetup.proxyPort", "Port")}</label>
+                    <input style={{ ...inputStyle, width: "80px" }} type="number" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} placeholder="7890" />
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Signature */}
             <div style={fieldStyle}>

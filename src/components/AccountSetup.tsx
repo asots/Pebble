@@ -79,6 +79,25 @@ export default function AccountSetup({ onClose }: Props) {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const dialogRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef(form);
+  formRef.current = form;
+
+  const requestClose = async () => {
+    const f = formRef.current;
+    const isDirty = !!(f.email || f.password || f.imap_host || f.display_name || f.smtp_host);
+    if (!isDirty) {
+      onClose();
+      return;
+    }
+    const confirmed = await useConfirmStore.getState().confirm({
+      title: i18n.t("accountSetup.discardTitle", "Discard form"),
+      message: i18n.t("accountSetup.discardConfirm", "Discard this form?"),
+      destructive: true,
+    });
+    if (confirmed) onClose();
+  };
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
 
   useEffect(() => {
     const previousFocus =
@@ -89,7 +108,7 @@ export default function AccountSetup({ onClose }: Props) {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        void requestCloseRef.current();
         return;
       }
       // Focus trap: keep Tab within the dialog
@@ -242,19 +261,9 @@ export default function AccountSetup({ onClose }: Props) {
         justifyContent: "center",
         zIndex: 1000,
       }}
-      onClick={async (e) => {
+      onClick={(e) => {
         if (e.target === e.currentTarget) {
-          const isDirty = form.email || form.password || form.imap_host;
-          if (!isDirty) {
-            onClose();
-            return;
-          }
-          const confirmed = await useConfirmStore.getState().confirm({
-            title: i18n.t("accountSetup.discardTitle", "Discard form"),
-            message: i18n.t("accountSetup.discardConfirm", "Discard this form?"),
-            destructive: true,
-          });
-          if (confirmed) onClose();
+          void requestClose();
         }
       }}
     >
@@ -293,7 +302,7 @@ export default function AccountSetup({ onClose }: Props) {
             {t("accountSetup.title", "Add Email Account")}
           </h2>
           <button
-            onClick={onClose}
+            onClick={() => void requestClose()}
             aria-label={t("common.close", "Close")}
             style={{
               background: "none",

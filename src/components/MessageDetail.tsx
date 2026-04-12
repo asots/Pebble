@@ -52,7 +52,7 @@ export default function MessageDetail({ messageId, onBack, folderRole }: Props) 
     if (saved === "off") return "Off";
     if (saved === "strict") return "Strict";
     if (saved === "relaxed") return "LoadOnce";
-    return "LoadOnce";
+    return "Strict";
   });
   const [showSnooze, setShowSnooze] = useState(false);
   const [showTranslate, setShowTranslate] = useState<{ text: string; position: { x: number; y: number } } | null>(null);

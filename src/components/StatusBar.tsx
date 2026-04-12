@@ -7,7 +7,6 @@ import { useUIStore } from "../stores/ui.store";
 import { useMailStore } from "@/stores/mail.store";
 import { stopSync } from "@/lib/api";
 import { useSyncMutation } from "@/hooks/mutations/useSyncMutation";
-import { retryQueue } from "../lib/retry-queue";
 
 interface MailErrorPayload {
   error_type: string;
@@ -58,15 +57,6 @@ export default function StatusBar() {
     return () => { unlisten.then((fn) => fn()); };
   }, [queryClient]);
 
-  // Pause/resume retry queue based on network status
-  useEffect(() => {
-    if (networkStatus === "offline") {
-      retryQueue.pause();
-    } else {
-      retryQueue.resume();
-    }
-  }, [networkStatus]);
-
   async function handleSync() {
     if (!activeAccountId) return;
     if (syncStatus === "syncing") {
@@ -89,7 +79,6 @@ export default function StatusBar() {
     error: t("status.syncError", "Sync error"),
   }[syncStatus];
 
-  const pendingCount = retryQueue.pendingCount;
   const notificationsEnabled = typeof window !== "undefined" && localStorage.getItem("pebble-notifications-enabled") === "true";
 
   return (
@@ -143,12 +132,6 @@ export default function StatusBar() {
             />
           </button>
         </>
-      )}
-
-      {pendingCount > 0 && (
-        <span style={{ color: "var(--color-warning, #f59e0b)" }}>
-          {t("status.pendingActions", "{{count}} pending", { count: pendingCount })}
-        </span>
       )}
 
       {lastMailError && (

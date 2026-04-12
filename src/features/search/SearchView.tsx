@@ -32,17 +32,21 @@ export default function SearchView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const initialQueryRef = useRef<string | null>(null);
+  const requestIdRef = useRef(0);
 
   const doSearch = useCallback(async () => {
     const trimmed = query.trim();
     const filtersActive = hasActiveFilters(filters);
 
     if (!trimmed && !filtersActive) {
+      requestIdRef.current += 1; // invalidate any in-flight response
       setResults([]);
       setHasSearched(false);
+      setLoading(false);
       return;
     }
 
+    const myId = ++requestIdRef.current;
     setLoading(true);
     setHasSearched(true);
     try {
@@ -52,10 +56,14 @@ export default function SearchView() {
       } else {
         hits = await searchMessages(trimmed);
       }
+      // Ignore stale responses from superseded requests
+      if (myId !== requestIdRef.current) return;
       setResults(hits);
       setSelectedId(null);
     } finally {
-      setLoading(false);
+      if (myId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [query, filters]);
 

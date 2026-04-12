@@ -16,15 +16,18 @@ const ACTION_I18N_MAP: Record<string, string> = {
   "toggle-view-kanban": "shortcuts.moveToKanban",
   "compose-new": "shortcuts.composeNew",
   "reply": "shortcuts.reply",
+  "reply-all": "shortcuts.replyAll",
+  "forward": "shortcuts.forward",
   "open-search": "shortcuts.openSearch",
+  "focus-search": "shortcuts.focusSearch",
   "open-cloud-settings": "shortcuts.openCloudSettings",
   "toggle-notifications": "shortcuts.toggleNotifications",
 };
 
 const SHORTCUT_GROUPS = [
   { categoryKey: "shortcuts.general", actions: ["command-palette", "close-modal", "open-cloud-settings", "toggle-notifications"] },
-  { categoryKey: "shortcuts.navigation", actions: ["next-message", "prev-message", "open-message", "open-search"] },
-  { categoryKey: "shortcuts.mailActions", actions: ["compose-new", "reply", "toggle-star", "archive-message", "toggle-view-inbox", "toggle-view-kanban"] },
+  { categoryKey: "shortcuts.navigation", actions: ["next-message", "prev-message", "open-message", "open-search", "focus-search"] },
+  { categoryKey: "shortcuts.mailActions", actions: ["compose-new", "reply", "reply-all", "forward", "toggle-star", "archive-message", "toggle-view-inbox", "toggle-view-kanban"] },
 ];
 
 function ShortcutRow({ actionId }: { actionId: string }) {

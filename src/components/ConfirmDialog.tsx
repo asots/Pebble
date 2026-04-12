@@ -121,7 +121,7 @@ export default function ConfirmDialog({
         </h3>
         <p
           id="confirm-dialog-message"
-          style={{ margin: 0, fontSize: "13px", color: "var(--color-text-secondary)", lineHeight: 1.5 }}
+          style={{ margin: 0, fontSize: "13px", color: "var(--color-text-secondary)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}
         >
           {message}
         </p>

@@ -90,6 +90,8 @@ export function useKeyboard() {
             useCommandStore.getState().close();
           } else if (useUIStore.getState().activeView === "compose") {
             confirmLeaveCompose().then((ok) => { if (ok) useUIStore.getState().closeCompose(); });
+          } else if (useUIStore.getState().activeView === "search") {
+            useUIStore.getState().setActiveView("inbox");
           }
           break;
         case "toggle-view-inbox":
@@ -197,6 +199,27 @@ export function useKeyboard() {
           }
           break;
         }
+        case "reply-all": {
+          const { selectedMessageId: selId } = useMailStore.getState();
+          if (selId) {
+            getMessage(selId).then((msg) => {
+              if (msg) useUIStore.getState().openCompose("reply-all", msg);
+            });
+          }
+          break;
+        }
+        case "forward": {
+          const { selectedMessageId: selId } = useMailStore.getState();
+          if (selId) {
+            getMessage(selId).then((msg) => {
+              if (msg) useUIStore.getState().openCompose("forward", msg);
+            });
+          }
+          break;
+        }
+        case "focus-search":
+          confirmLeaveCompose().then((ok) => { if (ok) useUIStore.getState().setActiveView("search"); });
+          break;
         case "open-message": {
           const state = useMailStore.getState();
           if (state.threadView) {
