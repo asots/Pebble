@@ -8,6 +8,7 @@ use super::{
     connect_gmail, connect_imap, connect_outlook, find_folder_by_role, find_message_folder,
     refresh_search_document, remove_search_documents,
 };
+use super::provider_dispatch::{ConnectedProvider, parse_imap_uid};
 
 /// Returns "archived" or "unarchived" so the frontend can show the correct toast.
 #[tauri::command]
@@ -278,32 +279,27 @@ pub async fn empty_trash(
 
     let count = messages.len() as u32;
 
-    match provider_type {
-        ProviderType::Gmail => {
-            if let Ok(provider) = connect_gmail(&state, &account_id).await {
+    if let Ok(conn) = ConnectedProvider::connect(&state, &account_id, &provider_type).await {
+        match &conn {
+            ConnectedProvider::Gmail(provider) => {
                 for msg in &messages {
                     let _ = provider.delete_message_permanently(&msg.remote_id).await;
                 }
             }
-        }
-        ProviderType::Outlook => {
-            if let Ok(provider) = connect_outlook(&state, &account_id).await {
+            ConnectedProvider::Outlook(provider) => {
                 for msg in &messages {
                     let _ = provider.delete_message_permanently(&msg.remote_id).await;
                 }
             }
-        }
-        ProviderType::Imap => {
-            // Try to permanently delete on IMAP server
-            if let Ok(imap) = connect_imap(&state, &account_id).await {
+            ConnectedProvider::Imap(imap) => {
                 for msg in &messages {
-                    if let Ok(uid) = msg.remote_id.parse::<u32>() {
+                    if let Ok(uid) = parse_imap_uid(&msg.remote_id) {
                         let _ = imap.delete_message(&trash.remote_id, uid).await;
                     }
                 }
-                let _ = imap.disconnect().await;
             }
         }
+        conn.disconnect().await;
     }
 
     // Permanently delete locally (hard delete, not soft delete + purge)

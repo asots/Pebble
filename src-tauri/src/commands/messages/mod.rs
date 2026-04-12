@@ -1,5 +1,6 @@
 pub mod flags;
 pub mod lifecycle;
+pub mod provider_dispatch;
 pub mod query;
 pub mod rendering;
 

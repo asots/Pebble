@@ -1,8 +1,8 @@
 use crate::state::AppState;
-use super::messages::{connect_gmail, connect_imap, connect_outlook, refresh_search_document, find_folder_by_role, find_message_folder, get_imap_config};
+use super::messages::{refresh_search_document, find_folder_by_role, find_message_folder};
+use super::messages::provider_dispatch::{ConnectedProvider, parse_imap_uid};
 use pebble_core::traits::{FolderProvider, LabelProvider};
 use pebble_core::{FolderRole, Message, PebbleError, ProviderType};
-use pebble_mail::ImapProvider;
 use std::collections::HashMap;
 use tauri::State;
 use tracing::{info, warn};
@@ -54,47 +54,46 @@ pub async fn batch_archive(
     for (account_id, (provider_type, messages)) in &groups {
         let archive_folder = find_folder_by_role(&state, account_id, FolderRole::Archive).ok();
 
-        // Remote sync per provider
-        match provider_type {
-            ProviderType::Gmail => {
-                if let Ok(provider) = connect_gmail(&state, account_id).await {
-                    for msg in messages {
-                        if let Err(e) = provider.modify_labels(&msg.remote_id, &[], &["INBOX".to_string()]).await {
-                            warn!("Gmail batch archive failed for {}: {e}", msg.id);
-                        }
-                    }
-                }
-            }
-            ProviderType::Outlook => {
-                if let Some(ref af) = archive_folder {
-                    if !af.remote_id.starts_with("__local_") {
-                        if let Ok(provider) = connect_outlook(&state, account_id).await {
-                            for msg in messages {
-                                if let Err(e) = provider.move_message(&msg.remote_id, &af.remote_id).await {
-                                    warn!("Outlook batch archive failed for {}: {e}", msg.id);
-                                }
+        // Remote sync — connect once per account, operate, disconnect.
+        // For Outlook/IMAP we need a usable (non-local) archive folder on the
+        // server; skip the connection entirely when there isn't one.
+        let has_remote_archive = archive_folder
+            .as_ref()
+            .is_some_and(|af| !af.remote_id.starts_with("__local_"));
+        let needs_connection = matches!(provider_type, ProviderType::Gmail) || has_remote_archive;
+
+        if needs_connection {
+            if let Ok(conn) = ConnectedProvider::connect(&state, account_id, provider_type).await {
+                match &conn {
+                    ConnectedProvider::Gmail(provider) => {
+                        for msg in messages {
+                            if let Err(e) = provider.modify_labels(&msg.remote_id, &[], &["INBOX".to_string()]).await {
+                                warn!("Gmail batch archive failed for {}: {e}", msg.id);
                             }
                         }
                     }
-                }
-            }
-            ProviderType::Imap => {
-                if let Some(ref af) = archive_folder {
-                    if !af.remote_id.starts_with("__local_") {
-                        if let Ok(imap) = connect_imap(&state, account_id).await {
-                            for msg in messages {
-                                if let Ok(uid) = msg.remote_id.parse::<u32>() {
-                                    if let Ok(src) = find_message_folder(&state, &msg.id, account_id) {
-                                        if let Err(e) = imap.move_message(&src.remote_id, uid, &af.remote_id).await {
-                                            warn!("IMAP batch archive failed for {}: {e}", msg.id);
-                                        }
+                    ConnectedProvider::Outlook(provider) => {
+                        let af = archive_folder.as_ref().unwrap();
+                        for msg in messages {
+                            if let Err(e) = provider.move_message(&msg.remote_id, &af.remote_id).await {
+                                warn!("Outlook batch archive failed for {}: {e}", msg.id);
+                            }
+                        }
+                    }
+                    ConnectedProvider::Imap(imap) => {
+                        let af = archive_folder.as_ref().unwrap();
+                        for msg in messages {
+                            if let Ok(uid) = parse_imap_uid(&msg.remote_id) {
+                                if let Ok(src) = find_message_folder(&state, &msg.id, account_id) {
+                                    if let Err(e) = imap.move_message(&src.remote_id, uid, &af.remote_id).await {
+                                        warn!("IMAP batch archive failed for {}: {e}", msg.id);
                                     }
                                 }
                             }
-                            let _ = imap.disconnect().await;
                         }
                     }
                 }
+                conn.disconnect().await;
             }
         }
 
@@ -140,32 +139,28 @@ pub async fn batch_delete(
 
     let groups = group_by_account(&state, &message_ids);
 
-    // Remote sync per provider
+    // Remote sync — connect once per account, operate, disconnect
     for (account_id, (provider_type, messages)) in &groups {
-        match provider_type {
-            ProviderType::Gmail => {
-                if let Ok(provider) = connect_gmail(&state, account_id).await {
+        if let Ok(conn) = ConnectedProvider::connect(&state, account_id, provider_type).await {
+            match &conn {
+                ConnectedProvider::Gmail(provider) => {
                     for msg in messages {
                         if let Err(e) = provider.trash_message(&msg.remote_id).await {
                             warn!("Gmail batch delete failed for {}: {e}", msg.id);
                         }
                     }
                 }
-            }
-            ProviderType::Outlook => {
-                if let Ok(provider) = connect_outlook(&state, account_id).await {
+                ConnectedProvider::Outlook(provider) => {
                     for msg in messages {
                         if let Err(e) = provider.trash_message(&msg.remote_id).await {
                             warn!("Outlook batch delete failed for {}: {e}", msg.id);
                         }
                     }
                 }
-            }
-            ProviderType::Imap => {
-                if let Ok(trash_folder) = find_folder_by_role(&state, account_id, FolderRole::Trash) {
-                    if let Ok(imap) = connect_imap(&state, account_id).await {
+                ConnectedProvider::Imap(imap) => {
+                    if let Ok(trash_folder) = find_folder_by_role(&state, account_id, FolderRole::Trash) {
                         for msg in messages {
-                            if let Ok(uid) = msg.remote_id.parse::<u32>() {
+                            if let Ok(uid) = parse_imap_uid(&msg.remote_id) {
                                 if let Ok(src) = find_message_folder(&state, &msg.id, account_id) {
                                     if src.id != trash_folder.id {
                                         if let Err(e) = imap.move_message(&src.remote_id, uid, &trash_folder.remote_id).await {
@@ -175,10 +170,10 @@ pub async fn batch_delete(
                                 }
                             }
                         }
-                        let _ = imap.disconnect().await;
                     }
                 }
             }
+            conn.disconnect().await;
         }
     }
 
@@ -216,11 +211,11 @@ pub async fn batch_mark_read(
 
     let groups = group_by_account(&state, &message_ids);
 
-    // Remote sync per provider
+    // Remote sync — connect once per account, operate, disconnect
     for (account_id, (provider_type, messages)) in &groups {
-        match provider_type {
-            ProviderType::Gmail => {
-                if let Ok(provider) = connect_gmail(&state, account_id).await {
+        if let Ok(conn) = ConnectedProvider::connect(&state, account_id, provider_type).await {
+            match &conn {
+                ConnectedProvider::Gmail(provider) => {
                     let (add, remove) = if is_read {
                         (vec![], vec!["UNREAD".to_string()])
                     } else {
@@ -232,33 +227,26 @@ pub async fn batch_mark_read(
                         }
                     }
                 }
-            }
-            ProviderType::Outlook => {
-                if let Ok(provider) = connect_outlook(&state, account_id).await {
+                ConnectedProvider::Outlook(provider) => {
                     for msg in messages {
                         if let Err(e) = provider.update_read_status(&msg.remote_id, is_read).await {
                             warn!("Outlook batch mark_read failed for {}: {e}", msg.id);
                         }
                     }
                 }
-            }
-            ProviderType::Imap => {
-                if let Ok(imap_config) = get_imap_config(&state, account_id) {
-                    let imap = ImapProvider::new(imap_config);
-                    if let Ok(()) = imap.connect().await {
-                        for msg in messages {
-                            if let Ok(uid) = msg.remote_id.parse::<u32>() {
-                                if let Ok(folder) = find_message_folder(&state, &msg.id, account_id) {
-                                    if let Err(e) = imap.set_flags(&folder.remote_id, uid, Some(is_read), None).await {
-                                        warn!("IMAP batch mark_read failed for {}: {e}", msg.id);
-                                    }
+                ConnectedProvider::Imap(imap) => {
+                    for msg in messages {
+                        if let Ok(uid) = parse_imap_uid(&msg.remote_id) {
+                            if let Ok(folder) = find_message_folder(&state, &msg.id, account_id) {
+                                if let Err(e) = imap.set_flags(&folder.remote_id, uid, Some(is_read), None).await {
+                                    warn!("IMAP batch mark_read failed for {}: {e}", msg.id);
                                 }
                             }
                         }
-                        let _ = imap.disconnect().await;
                     }
                 }
             }
+            conn.disconnect().await;
         }
     }
 
