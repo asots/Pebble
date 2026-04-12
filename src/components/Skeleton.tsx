@@ -45,7 +45,7 @@ export function MessageSkeleton() {
 /** Multiple message skeletons stacked. */
 export function MessageListSkeleton({ count = 6 }: { count?: number }) {
   return (
-    <div className="fade-in">
+    <div role="status" aria-live="polite" className="fade-in">
       {Array.from({ length: count }, (_, i) => (
         <MessageSkeleton key={i} />
       ))}
@@ -56,8 +56,8 @@ export function MessageListSkeleton({ count = 6 }: { count?: number }) {
 /** Skeleton for the kanban board columns. */
 export function KanbanSkeleton() {
   return (
-    <div className="fade-in" style={{ display: "flex", gap: "16px", padding: "20px" }}>
-      {[1, 2, 3, 4].map((col) => (
+    <div role="status" aria-live="polite" className="fade-in" style={{ display: "flex", gap: "16px", padding: "20px" }}>
+      {[1, 2, 3].map((col) => (
         <div
           key={col}
           style={{
@@ -79,7 +79,7 @@ export function KanbanSkeleton() {
 /** Skeleton for message detail view. */
 export function MessageDetailSkeleton() {
   return (
-    <div className="fade-in" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
+    <div role="status" aria-live="polite" className="fade-in" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
       <Skeleton width="55%" height="18px" />
       <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
         <Skeleton width="28px" height="28px" borderRadius="50%" />

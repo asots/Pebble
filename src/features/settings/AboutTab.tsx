@@ -8,7 +8,7 @@ const REPO = "QingJ01/Pebble";
 const RELEASES_URL = `https://github.com/${REPO}/releases`;
 
 function openUrl(url: string) {
-  invoke("open_external_url", { url }).catch(() => {});
+  invoke("open_external_url", { url }).catch((err) => console.warn("Failed to open external URL", err));
 }
 
 interface UpdateState {

@@ -19,7 +19,7 @@ export default function GeneralTab() {
     setNotificationsEnabled((prev) => {
       const next = !prev;
       localStorage.setItem(NOTIFICATIONS_KEY, String(next));
-      invoke("set_notifications_enabled", { enabled: next }).catch(() => {});
+      invoke("set_notifications_enabled", { enabled: next }).catch((err) => console.warn("Failed to update notifications setting in backend", err));
       return next;
     });
   }, []);

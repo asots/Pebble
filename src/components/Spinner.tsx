@@ -9,6 +9,8 @@ interface SpinnerProps {
 export default function Spinner({ size = 20, label }: SpinnerProps) {
   return (
     <div
+      role="status"
+      aria-live="polite"
       className="fade-in"
       style={{
         display: "flex",

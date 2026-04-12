@@ -47,7 +47,7 @@ export default function Layout() {
     useCommandStore.getState().registerCommands(buildCommands(t));
     // Sync notification preference from localStorage to backend on startup
     const enabled = localStorage.getItem("pebble-notifications-enabled") === "true";
-    invoke("set_notifications_enabled", { enabled }).catch(() => {});
+    invoke("set_notifications_enabled", { enabled }).catch((err) => console.warn("Failed to sync notification preference to backend", err));
   }, [t]);
 
   // Global listener: update sync status when backend starts a sync pass

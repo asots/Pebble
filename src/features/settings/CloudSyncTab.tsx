@@ -14,19 +14,7 @@ import {
   restoreFromWebdav,
   type BackupPreview,
 } from "../../lib/api";
-
-/** Extract a readable message from Tauri invoke errors (which may be strings, Error, or plain objects). */
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  if (err && typeof err === "object") {
-    const obj = err as Record<string, unknown>;
-    if (typeof obj.message === "string") return obj.message;
-    if (typeof obj.error === "string") return obj.error;
-    return JSON.stringify(err);
-  }
-  return String(err);
-}
+import { extractErrorMessage as errorMessage } from "@/lib/extractErrorMessage";
 
 const LAST_BACKUP_KEY = "pebble-cloud-sync-last-backup";
 
@@ -179,6 +167,26 @@ export default function CloudSyncTab() {
             "Note: Backups are uploaded as unencrypted JSON. Ensure your WebDAV server is trusted.",
           )}
         </span>
+      </p>
+
+      <p
+        style={{
+          marginTop: "-8px",
+          marginBottom: "18px",
+          fontSize: "13px",
+          lineHeight: 1.5,
+          color: "var(--color-text-secondary)",
+          maxWidth: "640px",
+          padding: "8px 12px",
+          background: "var(--color-bg-secondary)",
+          borderRadius: "6px",
+          borderLeft: "3px solid var(--color-accent)",
+        }}
+      >
+        {t(
+          "cloudSync.scopeNotice",
+          "WebDAV backup only includes settings, rules, and kanban data. Email messages are not included.",
+        )}
       </p>
 
       <div style={fieldGroupStyle}>

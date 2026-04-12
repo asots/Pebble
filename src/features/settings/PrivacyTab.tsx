@@ -17,7 +17,7 @@ export default function PrivacyTab() {
 
   useEffect(() => {
     if (activeAccountId) {
-      listTrustedSenders(activeAccountId).then(setTrustedSenders).catch(() => {});
+      listTrustedSenders(activeAccountId).then(setTrustedSenders).catch((err) => console.warn("Failed to load trusted senders", err));
     }
   }, [activeAccountId]);
 

@@ -4,6 +4,7 @@ import { Plus, Pencil, Trash2, ShieldCheck, X } from "lucide-react";
 import { createRule, deleteRule, listRules, updateRule, type Rule } from "@/lib/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useToastStore } from "@/stores/toast.store";
+import { extractErrorMessage } from "@/lib/extractErrorMessage";
 import {
   parseRuleActions,
   parseRuleConditions,
@@ -75,14 +76,17 @@ export default function RulesTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleFormData>(emptyForm);
   const [error, setError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   async function fetchRules() {
+    setFetchError(null);
     try {
       const result = await listRules();
       setRules(result);
     } catch (err) {
       console.error("Failed to fetch rules:", err);
+      setFetchError(extractErrorMessage(err));
     }
   }
 
@@ -529,8 +533,43 @@ export default function RulesTab() {
       {/* Inline editor for new rule */}
       {editingId === "__new__" && renderEditor()}
 
+      {/* Fetch error state */}
+      {fetchError && editingId !== "__new__" && (
+        <div
+          className="fade-in"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "12px",
+            padding: "48px 0",
+            color: "var(--color-text-secondary)",
+          }}
+        >
+          <p style={{ color: "var(--color-error, #e53e3e)", fontSize: "14px", margin: 0 }}>
+            {t("rules.fetchError", "Failed to load rules")}
+          </p>
+          <p style={{ fontSize: "13px", margin: 0 }}>{fetchError}</p>
+          <button
+            onClick={fetchRules}
+            style={{
+              marginTop: "4px",
+              padding: "6px 16px",
+              borderRadius: "4px",
+              border: "1px solid var(--color-border)",
+              backgroundColor: "transparent",
+              color: "var(--color-accent)",
+              fontSize: "13px",
+              cursor: "pointer",
+            }}
+          >
+            {t("common.retry", "Retry")}
+          </button>
+        </div>
+      )}
+
       {/* Empty state */}
-      {rules.length === 0 && editingId !== "__new__" && (
+      {rules.length === 0 && !fetchError && editingId !== "__new__" && (
         <div
           style={{
             display: "flex",
