@@ -7,6 +7,7 @@ import type { MessageSummary } from "@/lib/api";
 import { getMessageLabelsBatch, batchArchive, batchDelete, batchMarkRead } from "@/lib/api";
 import { useMailStore } from "@/stores/mail.store";
 import { useToastStore } from "@/stores/toast.store";
+import { useConfirmStore } from "@/stores/confirm.store";
 import MessageItem from "./MessageItem";
 import { MessageListSkeleton } from "./Skeleton";
 
@@ -38,6 +39,7 @@ export default function MessageList({
   const selectAllMessages = useMailStore((s) => s.selectAllMessages);
   const clearSelection = useMailStore((s) => s.clearSelection);
   const [batchLoading, setBatchLoading] = useState(false);
+  const confirm = useConfirmStore((s) => s.confirm);
   const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
   const messageIdsKey = useMemo(() => messageIds.join(","), [messageIds]);
   const { data: labelsByMessage = {} } = useQuery({
@@ -92,6 +94,15 @@ export default function MessageList({
   async function handleBatchAction(action: "archive" | "delete" | "markRead" | "markUnread") {
     const ids = [...selectedMessageIds];
     if (ids.length === 0) return;
+    if (action === "delete") {
+      const ok = await confirm({
+        title: t("batch.deleteTitle"),
+        message: t("batch.deleteConfirm", { count: ids.length }),
+        confirmLabel: t("common.delete"),
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     setBatchLoading(true);
     try {
       let count = 0;

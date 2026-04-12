@@ -131,7 +131,8 @@
     "leaveEmptyKeep": "leave empty to keep current",
     "optional": "optional",
     "signature": "Signature",
-    "signaturePlaceholder": "Your email signature..."
+    "signaturePlaceholder": "Your email signature...",
+    "oauthAccountNote": "This account uses OAuth — sign-in, password, IMAP/SMTP, and proxy are managed by the provider and not editable here."
   },
   "cloudSync": {
     "title": "Settings Backup",
@@ -151,12 +152,19 @@
     "restoreConfirm": "This will replace your local rules, cards, and saved account metadata with the backup. Reauthentication will still be required. Continue?",
     "backupFailed": "Backup failed: {{error}}",
     "restoreFailed": "Restore failed: {{error}}",
-    "encryptionWarning": "Note: Backups are uploaded as unencrypted JSON. Ensure your WebDAV server is trusted."
+    "encryptionWarning": "Note: Backups are uploaded as unencrypted JSON. Ensure your WebDAV server is trusted.",
+    "restorePreviewHeader": "Backup contents to restore:",
+    "restorePreviewSchema": "Schema version: {{version}}",
+    "restorePreviewExported": "Exported: {{date}}",
+    "restorePreviewAccounts": "Accounts: {{count}}",
+    "restorePreviewRules": "Rules: {{count}}",
+    "restorePreviewKanban": "Kanban cards: {{count}}",
+    "restorePreviewSize": "Size: {{kb}} KB"
   },
   "about": {
     "title": "About",
     "version": "Version",
-    "description": "A privacy-first desktop email client built with Rust and React. Your data stays on your device — no telemetry, no third-party data access.",
+    "description": "A privacy-first desktop email client built with Rust and React. Mail, search index, and attachments stay on your device. No telemetry. Optional features like translation send only the selected text to the provider you configure.",
     "features": "Supports Gmail, Outlook, and IMAP accounts. Includes Kanban board, full-text search, snooze, rules engine, built-in translation, and optional WebDAV settings backup.",
     "license": "Open source under AGPL-3.0 license.",
     "updates": "Updates",
@@ -225,6 +233,9 @@
     "toggleNotifications": "Toggle notifications",
     "composeNew": "Compose new message",
     "reply": "Reply to message",
+    "replyAll": "Reply to all",
+    "forward": "Forward message",
+    "focusSearch": "Focus search",
     "edit": "Click to change",
     "recording": "Press keys...",
     "conflict": "Already assigned to: {{action}}",
@@ -286,7 +297,8 @@
     "waiting": "Waiting",
     "done": "Done",
     "dropHere": "Drop messages here",
-    "clickToOpen": "Click to open message"
+    "clickToOpen": "Click to open message",
+    "cardAriaLabel": "{{subject}} from {{sender}}. Press Enter to open, Space to drag."
   },
   "accountSetup": {
     "title": "Add Email Account",
@@ -464,6 +476,8 @@
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "success": "{{count}} messages updated",
-    "failed": "Batch operation failed"
+    "failed": "Batch operation failed",
+    "deleteTitle": "Delete Messages",
+    "deleteConfirm": "Permanently delete {{count}} messages?"
   }
 }
