@@ -126,6 +126,23 @@ impl Store {
             .map_err(|e| PebbleError::Internal(format!("Pool error: {e}")))?;
         f(&conn)
     }
+
+    /// Run VACUUM to reclaim space from soft-deleted rows.
+    pub fn vacuum(&self) -> Result<()> {
+        self.with_write(|conn| {
+            conn.execute_batch("VACUUM")?;
+            Ok(())
+        })
+    }
+
+    /// Run a quick integrity check on the database.
+    /// Returns the check result string (normally "ok").
+    pub fn quick_check(&self) -> Result<String> {
+        self.with_read(|conn| {
+            conn.query_row("PRAGMA quick_check", [], |row| row.get::<_, String>(0))
+                .map_err(|e| PebbleError::Storage(e.to_string()))
+        })
+    }
 }
 
 #[cfg(test)]

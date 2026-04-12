@@ -20,6 +20,8 @@ pub async fn run_snooze_watcher(
     let mut last_purge = Instant::now();
     const PURGE_INTERVAL: Duration = Duration::from_secs(3600); // 1 hour
     const TOMBSTONE_MAX_AGE_SECS: i64 = 30 * 24 * 3600; // 30 days
+    let mut last_vacuum = Instant::now();
+    const VACUUM_INTERVAL: Duration = Duration::from_secs(7 * 24 * 3600); // 1 week
 
     loop {
         // Check for stop signal (non-blocking) — also stop on channel disconnect
@@ -102,6 +104,16 @@ pub async fn run_snooze_watcher(
                 Err(e) => warn!("Tombstone purge task error: {e}"),
             }
             last_purge = Instant::now();
+        }
+
+        if last_vacuum.elapsed() >= VACUUM_INTERVAL {
+            let store_clone = store.clone();
+            match tokio::task::spawn_blocking(move || store_clone.vacuum()).await {
+                Ok(Ok(())) => info!("Database VACUUM completed"),
+                Ok(Err(e)) => warn!("Database VACUUM failed: {e}"),
+                Err(e) => warn!("Database VACUUM task error: {e}"),
+            }
+            last_vacuum = Instant::now();
         }
     }
 }

@@ -44,6 +44,12 @@ pub fn run() {
             let store = pebble_store::Store::open(&db_path)?;
             tracing::info!("Database initialized successfully");
 
+            match store.quick_check() {
+                Ok(result) if result == "ok" => tracing::info!("Database integrity check passed"),
+                Ok(result) => tracing::warn!("Database integrity check warning: {}", result),
+                Err(e) => tracing::warn!("Database integrity check failed: {}", e),
+            }
+
             let index_path = get_index_path(app)?;
             tracing::info!("Search index path: {}", index_path.display());
             let search = pebble_search::TantivySearch::open(&index_path)?;
