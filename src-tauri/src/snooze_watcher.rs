@@ -51,6 +51,7 @@ pub async fn run_snooze_watcher(
                         store_clone.unsnooze_message(&msg_id)
                     }).await.unwrap_or_else(|e| Err(pebble_core::PebbleError::Internal(e.to_string()))) {
                         error!("Failed to unsnooze message {}: {e}", snoozed.message_id);
+                        continue;
                     }
                     let _ = app_handle.emit(events::MAIL_UNSNOOZED, serde_json::json!({
                         "message_id": snoozed.message_id,
