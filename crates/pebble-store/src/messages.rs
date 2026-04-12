@@ -959,6 +959,52 @@ impl Store {
         })
     }
 
+    /// Get (message_id_header → thread_id) mappings only for the given ref IDs.
+    /// Used by sync to avoid loading the full account mapping on every batch.
+    pub fn get_thread_mappings_for_refs(
+        &self,
+        account_id: &str,
+        ref_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, String>> {
+        if ref_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        self.with_read(|conn| {
+            let mut results = std::collections::HashMap::new();
+            for chunk in ref_ids.chunks(500) {
+                let placeholders: String = chunk
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("?{}", i + 2))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let sql = format!(
+                    "SELECT message_id_header, thread_id FROM messages \
+                     WHERE account_id = ?1 \
+                       AND message_id_header IN ({placeholders}) \
+                       AND thread_id IS NOT NULL \
+                       AND is_deleted = 0"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+                params.push(Box::new(account_id.to_string()));
+                for id in chunk {
+                    params.push(Box::new(id.clone()));
+                }
+                let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                    params.iter().map(|p| p.as_ref()).collect();
+                let rows = stmt.query_map(param_refs.as_slice(), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                for row in rows {
+                    let (mid, tid) = row?;
+                    results.insert(mid, tid);
+                }
+            }
+            Ok(results)
+        })
+    }
+
     /// Count total non-deleted messages across all accounts.
     pub fn count_all_messages(&self) -> Result<u64> {
         self.with_read(|conn| {

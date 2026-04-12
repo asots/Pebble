@@ -15,10 +15,34 @@ pub struct SyncError {
     pub timestamp: u64,
 }
 
-use crate::parser::{AttachmentData, parse_raw_email};
+use crate::parser::{AttachmentData, ParsedMessage, parse_raw_email};
 use crate::provider::imap_provider::ImapMailProvider;
 use crate::reconcile;
 use crate::thread::compute_thread_id;
+
+/// Collect all message-ID references (In-Reply-To + References) from a batch of
+/// pre-parsed messages. Used to limit the thread-mappings query to only the IDs
+/// that are actually needed by this batch.
+fn collect_ref_ids_from_parsed(
+    parsed_messages: &[(u32, pebble_core::Result<ParsedMessage>)],
+) -> Vec<String> {
+    let mut refs = std::collections::HashSet::new();
+    for (_, result) in parsed_messages {
+        if let Ok(parsed) = result {
+            if let Some(irt) = &parsed.in_reply_to {
+                for id in irt.split_whitespace() {
+                    refs.insert(id.trim().to_string());
+                }
+            }
+            if let Some(r) = &parsed.references_header {
+                for id in r.split_whitespace() {
+                    refs.insert(id.trim().to_string());
+                }
+            }
+        }
+    }
+    refs.into_iter().collect()
+}
 
 /// Sanitize a filename to prevent path traversal attacks.
 /// Removes path separators, `..` sequences, and trims leading dots/spaces.
@@ -430,14 +454,6 @@ impl SyncWorker {
             return Ok(0);
         }
 
-        // Load existing thread mappings for thread ID computation.
-        // This is mutable so we can extend it as we store new messages within the batch,
-        // ensuring intra-batch replies find their parent's thread.
-        let mut thread_mappings = self
-            .base.store
-            .get_thread_mappings(&self.base.account_id)
-            .unwrap_or_default();
-
         // Bulk-check which UIDs already exist to avoid N+1 queries
         let all_remote_ids: Vec<String> = raw_messages.iter().map(|(uid, _)| uid.to_string()).collect();
         let existing_ids = self
@@ -445,9 +461,30 @@ impl SyncWorker {
             .get_existing_remote_ids(&self.base.account_id, &all_remote_ids)
             .unwrap_or_default();
 
+        // Parse all raw messages upfront so we can collect In-Reply-To / References
+        // before querying thread mappings (avoids loading the full account mapping).
+        let parsed_messages: Vec<(u32, Result<crate::parser::ParsedMessage>)> = raw_messages
+            .into_iter()
+            .map(|(uid, raw)| {
+                let parsed = parse_raw_email(&raw);
+                (uid, parsed)
+            })
+            .collect();
+
+        // Collect all referenced message-ID headers from this batch.
+        let ref_ids = collect_ref_ids_from_parsed(&parsed_messages);
+
+        // Load thread mappings only for the IDs referenced by this batch.
+        // This is mutable so we can extend it as we store new messages within the batch,
+        // ensuring intra-batch replies find their parent's thread.
+        let mut thread_mappings = self
+            .base.store
+            .get_thread_mappings_for_refs(&self.base.account_id, &ref_ids)
+            .unwrap_or_default();
+
         let mut stored_count = 0u32;
 
-        for (uid, raw) in raw_messages {
+        for (uid, parse_result) in parsed_messages {
             let remote_id = uid.to_string();
 
             // Skip if already stored (checked via bulk query above)
@@ -456,7 +493,7 @@ impl SyncWorker {
                 continue;
             }
 
-            let parsed = match parse_raw_email(&raw) {
+            let parsed = match parse_result {
                 Ok(p) => p,
                 Err(e) => {
                     warn!("Failed to parse message UID {}: {}", uid, e);

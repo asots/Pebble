@@ -305,7 +305,9 @@ impl GmailSyncWorker {
             .get_existing_message_map_by_remote_ids(&self.base.account_id, &remote_ids)
             .unwrap_or_default();
 
-        // Load thread mappings for thread ID computation
+        // TODO: Gmail messages are fetched one-by-one (async fetch_sync_message), so we
+        // cannot collect In-Reply-To/References refs before the loop without pre-fetching
+        // all messages. Use the full mapping for now; optimise once batch-fetch is added.
         let mut thread_mappings = self
             .base.store
             .get_thread_mappings(&self.base.account_id)
@@ -493,6 +495,8 @@ impl GmailSyncWorker {
                 .get("INBOX")
                 .cloned()
                 .unwrap_or_default();
+            // TODO: Gmail history messages are also fetched one-by-one; refs cannot be
+            // collected before the loop. Use full mapping until batch-fetch is available.
             let mut thread_mappings = self
                 .base.store
                 .get_thread_mappings(&self.base.account_id)
