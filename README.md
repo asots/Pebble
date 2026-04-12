@@ -28,7 +28,7 @@
 - Open source under AGPL-3.0
 
 **Email Management**
-- Gmail, Outlook, and IMAP support — all accounts in one place
+- Gmail and IMAP support — all accounts in one place (Outlook support is experimental)
 - Kanban board — drag emails across Todo, Waiting, and Done columns
 - Smart search powered by Tantivy full-text search engine
 - Snooze & Star — resurface emails later, mark what matters
@@ -36,7 +36,7 @@
 
 **User Experience**
 - Dark & Light themes with system-aware auto-switching
-- Keyboard-first navigation — compose, navigate, and manage from the keyboard
+- Keyboard-friendly navigation — core actions (compose, reply, archive, search, navigate) have shortcuts; see the table below
 - Built-in translation with DeepL / LLM bilingual view
 - i18n support — English and Chinese built-in
 
