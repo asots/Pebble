@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::backoff::SyncBackoff;
 use pebble_core::{Message, Result, new_id, now_timestamp};
 use pebble_store::Store;
 use tokio::sync::{mpsc, watch};
@@ -734,14 +735,30 @@ impl SyncWorker {
 
         let mut stop_rx = self.stop_rx.clone();
         let mut last_exists: u32 = 0;
+        let mut backoff = SyncBackoff::new();
 
         loop {
             tokio::select! {
                 _ = poll_ticker.tick() => {
+                    if backoff.is_circuit_open() {
+                        let delay = backoff.current_delay();
+                        warn!(
+                            "Circuit open for account {} ({} consecutive failures), waiting {:?}",
+                            self.account_id, backoff.failure_count(), delay
+                        );
+                        match tokio::time::timeout(delay, stop_rx.changed()).await {
+                            Ok(Ok(())) if *stop_rx.borrow() => break,
+                            _ => {}
+                        }
+                    }
+
                     // Quick check if mailbox has changes before doing full poll
                     let folders = match self.store.list_folders(&self.account_id) {
                         Ok(f) => f,
-                        Err(_) => continue,
+                        Err(_) => {
+                            backoff.record_failure();
+                            continue;
+                        }
                     };
                     if let Some(inbox) = folders.iter().find(|f| f.role == Some(pebble_core::FolderRole::Inbox)) {
                         match crate::idle::check_for_changes_with_idle(self.provider.inner(), &inbox.remote_id, &mut last_exists, supports_idle).await {
@@ -749,10 +766,14 @@ impl SyncWorker {
                                 if let Err(e) = self.poll_new_messages().await {
                                     warn!("Poll error for account {}: {}", self.account_id, e);
                                     self.emit_error("poll", &format!("Poll error: {}", e));
+                                    backoff.record_failure();
+                                } else {
+                                    backoff.record_success();
                                 }
                             }
                             Ok(crate::idle::IdleEvent::Timeout) => {
                                 debug!("No changes detected for account {}", self.account_id);
+                                backoff.record_success();
                             }
                             Ok(crate::idle::IdleEvent::Error(e)) => {
                                 warn!("IDLE check error for account {}: {}", self.account_id, e);
@@ -761,11 +782,15 @@ impl SyncWorker {
                                 if let Err(e) = self.poll_new_messages().await {
                                     warn!("Poll error for account {}: {}", self.account_id, e);
                                     self.emit_error("poll", &format!("Poll error: {}", e));
+                                    backoff.record_failure();
+                                } else {
+                                    backoff.record_success();
                                 }
                             }
                             Err(e) => {
                                 warn!("IDLE check failed for account {}: {}", self.account_id, e);
                                 self.emit_error("idle", &format!("IDLE check failed: {}", e));
+                                backoff.record_failure();
                             }
                         }
                     }
@@ -775,6 +800,10 @@ impl SyncWorker {
                     if let Err(e) = self.poll_new_messages().await {
                         warn!("Reconcile poll error for account {}: {}", self.account_id, e);
                         self.emit_error("reconcile", &format!("Reconcile poll error: {}", e));
+                        backoff.record_failure();
+                        continue;
+                    } else {
+                        backoff.record_success();
                     }
                     let folders = match self.store.list_folders(&self.account_id) {
                         Ok(f) => f,

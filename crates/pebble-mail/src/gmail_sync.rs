@@ -11,6 +11,7 @@ use std::sync::Mutex as StdMutex;
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, error, info, warn};
 
+use crate::backoff::SyncBackoff;
 use crate::provider::gmail::{GmailFetchedMessage, GmailProvider, visible_label_ids};
 use crate::sync::{StoredMessage, SyncConfig, SyncError, persist_message_attachments};
 use crate::thread::compute_thread_id;
@@ -563,6 +564,7 @@ impl GmailSyncWorker {
 
         let mut poll_ticker = tokio::time::interval(poll_interval);
         let mut stop_rx = self.stop_rx.clone();
+        let mut backoff = SyncBackoff::new();
 
         loop {
             tokio::select! {
@@ -573,13 +575,30 @@ impl GmailSyncWorker {
                     }
                 }
                 _ = poll_ticker.tick() => {
+                    if backoff.is_circuit_open() {
+                        let delay = backoff.current_delay();
+                        warn!(
+                            "Circuit open for Gmail account {} ({} failures), waiting {:?}",
+                            self.account_id, backoff.failure_count(), delay
+                        );
+                        match tokio::time::timeout(delay, stop_rx.changed()).await {
+                            Ok(Ok(())) if *stop_rx.borrow() => break,
+                            _ => {}
+                        }
+                    }
+
                     if let Err(e) = self.ensure_valid_token().await {
                         warn!("Token refresh failed: {}", e);
+                        let _ = backoff.record_failure();
                         continue;
                     }
-                    if let Err(e) = self.poll_changes().await {
-                        warn!("Gmail poll failed for account {}: {}", self.account_id, e);
-                        self.emit_error("sync", &format!("Poll failed: {e}"));
+                    match self.poll_changes().await {
+                        Ok(()) => backoff.record_success(),
+                        Err(e) => {
+                            warn!("Gmail poll failed for account {}: {}", self.account_id, e);
+                            self.emit_error("sync", &format!("Poll failed: {e}"));
+                            let _ = backoff.record_failure();
+                        }
                     }
                 }
             }

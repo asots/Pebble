@@ -8,6 +8,7 @@ use pebble_store::Store;
 use tokio::sync::{mpsc, watch};
 use tracing::{info, warn};
 
+use crate::backoff::SyncBackoff;
 use crate::provider::outlook::OutlookProvider;
 use crate::gmail_sync::TokenRefresher;
 use crate::sync::{StoredMessage, SyncConfig, SyncError, persist_message_attachments};
@@ -108,25 +109,57 @@ impl OutlookSyncWorker {
     /// Main sync loop.
     pub async fn run(&self, config: SyncConfig, mut stop_rx: watch::Receiver<bool>) {
         let poll_interval = tokio::time::Duration::from_secs(config.poll_interval_secs);
+        let mut backoff = SyncBackoff::new();
 
         loop {
             if *stop_rx.borrow() {
                 break;
             }
 
+            // Check circuit breaker at start of each iteration
+            if backoff.is_circuit_open() {
+                let delay = backoff.current_delay();
+                warn!(
+                    "Circuit open for Outlook account {} ({} failures), waiting {:?}",
+                    self.account_id, backoff.failure_count(), delay
+                );
+                match tokio::time::timeout(delay, stop_rx.changed()).await {
+                    Ok(Ok(())) if *stop_rx.borrow() => break,
+                    _ => {}
+                }
+            }
+
             // Refresh token if needed
             if let Err(e) = self.ensure_valid_token().await {
                 warn!("Outlook token validation failed: {}", e);
                 self.emit_error("auth", &format!("Token validation failed: {e}"));
+                let _ = backoff.record_failure();
+                if backoff.is_circuit_open() {
+                    let delay = backoff.current_delay();
+                    let _ = tokio::time::timeout(delay, stop_rx.changed()).await;
+                }
+                continue;
             }
 
             // List folders and fetch messages per folder
             let folders = match self.provider.list_folders().await {
-                Ok(f) => f,
+                Ok(f) => {
+                    backoff.record_success();
+                    f
+                }
                 Err(e) => {
                     warn!("Outlook folder list failed: {e}");
                     self.emit_error("sync", &format!("Outlook folder list failed: {e}"));
-                    vec![]
+                    let delay = backoff.record_failure();
+                    if backoff.is_circuit_open() {
+                        warn!(
+                            "Circuit open for Outlook account {} ({} failures), waiting {:?}",
+                            self.account_id, backoff.failure_count(), delay
+                        );
+                    }
+                    let wait = if backoff.is_circuit_open() { delay } else { poll_interval };
+                    let _ = tokio::time::timeout(wait, stop_rx.changed()).await;
+                    continue;
                 }
             };
 
