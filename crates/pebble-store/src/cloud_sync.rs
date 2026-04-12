@@ -275,80 +275,68 @@ impl Store {
         }
 
         self.with_write(|conn| {
-            conn.execute_batch("BEGIN")
+            let tx = conn.unchecked_transaction()
                 .map_err(|e| PebbleError::Storage(format!("Failed to begin transaction: {e}")))?;
 
-            let result = (|| -> Result<()> {
-                // Upsert accounts (insert if not exists, skip if exists to avoid overwriting local data)
-                for ab in &backup.accounts {
-                    let exists: bool = conn
-                        .query_row(
-                            "SELECT EXISTS(SELECT 1 FROM accounts WHERE id = ?1)",
-                            rusqlite::params![&ab.id],
-                            |row| row.get(0),
-                        )
-                        .map_err(|e| PebbleError::Storage(e.to_string()))?;
-                    if !exists {
-                        let now = pebble_core::now_timestamp();
-                        let mut sync_state = crate::accounts::SyncState {
-                            provider: Some(provider_slug(&ab.provider).to_string()),
-                            ..Default::default()
-                        };
-                        sync_state
-                            .extra
-                            .insert("needs_reauth".into(), serde_json::Value::Bool(true));
-                        sync_state.extra.insert(
-                            "restore_is_partial".into(),
-                            serde_json::Value::Bool(true),
-                        );
-                        sync_state.extra.insert(
-                            "restored_from_backup_at".into(),
-                            serde_json::Value::Number(now.into()),
-                        );
-                        let sync_state_json = sync_state.to_json()?;
-                        conn.execute(
-                            "INSERT INTO accounts (id, email, display_name, provider, sync_state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                            rusqlite::params![&ab.id, &ab.email, &ab.display_name, provider_slug(&ab.provider), sync_state_json, now, now],
-                        ).map_err(|e| PebbleError::Storage(e.to_string()))?;
-                    }
-                }
-
-                // Replace rules atomically — delete existing, then insert from backup
-                conn.execute("DELETE FROM rules", [])
+            // Upsert accounts (insert if not exists, skip if exists to avoid overwriting local data)
+            for ab in &backup.accounts {
+                let exists: bool = tx
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM accounts WHERE id = ?1)",
+                        rusqlite::params![&ab.id],
+                        |row| row.get(0),
+                    )
                     .map_err(|e| PebbleError::Storage(e.to_string()))?;
-                for rule in &backup.rules {
-                    conn.execute(
-                        "INSERT INTO rules (id, name, priority, conditions, actions, is_enabled, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                        rusqlite::params![&rule.id, &rule.name, rule.priority, &rule.conditions, &rule.actions, rule.is_enabled, rule.created_at, rule.updated_at],
+                if !exists {
+                    let now = pebble_core::now_timestamp();
+                    let mut sync_state = crate::accounts::SyncState {
+                        provider: Some(provider_slug(&ab.provider).to_string()),
+                        ..Default::default()
+                    };
+                    sync_state
+                        .extra
+                        .insert("needs_reauth".into(), serde_json::Value::Bool(true));
+                    sync_state.extra.insert(
+                        "restore_is_partial".into(),
+                        serde_json::Value::Bool(true),
+                    );
+                    sync_state.extra.insert(
+                        "restored_from_backup_at".into(),
+                        serde_json::Value::Number(now.into()),
+                    );
+                    let sync_state_json = sync_state.to_json()?;
+                    tx.execute(
+                        "INSERT INTO accounts (id, email, display_name, provider, sync_state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        rusqlite::params![&ab.id, &ab.email, &ab.display_name, provider_slug(&ab.provider), sync_state_json, now, now],
                     ).map_err(|e| PebbleError::Storage(e.to_string()))?;
                 }
+            }
 
-                // Upsert kanban cards
-                for card in &backup.kanban_cards {
-                    Self::upsert_kanban_card_with_conn(conn, card)?;
-                }
+            // Replace rules atomically — delete existing, then insert from backup
+            tx.execute("DELETE FROM rules", [])
+                .map_err(|e| PebbleError::Storage(e.to_string()))?;
+            for rule in &backup.rules {
+                tx.execute(
+                    "INSERT INTO rules (id, name, priority, conditions, actions, is_enabled, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    rusqlite::params![&rule.id, &rule.name, rule.priority, &rule.conditions, &rule.actions, rule.is_enabled, rule.created_at, rule.updated_at],
+                ).map_err(|e| PebbleError::Storage(e.to_string()))?;
+            }
 
-                // Upsert translate config — skip if config field is empty (redacted export)
-                if let Some(tc) = &backup.translate_config {
-                    if !tc.config.is_empty() {
-                        Self::save_translate_config_with_conn(conn, tc)?;
-                    }
-                }
+            // Upsert kanban cards
+            for card in &backup.kanban_cards {
+                Self::upsert_kanban_card_with_conn(&tx, card)?;
+            }
 
-                Ok(())
-            })();
-
-            match result {
-                Ok(()) => {
-                    conn.execute_batch("COMMIT")
-                        .map_err(|e| PebbleError::Storage(format!("Failed to commit: {e}")))?;
-                    Ok(())
-                }
-                Err(e) => {
-                    let _ = conn.execute_batch("ROLLBACK");
-                    Err(e)
+            // Upsert translate config — skip if config field is empty (redacted export)
+            if let Some(tc) = &backup.translate_config {
+                if !tc.config.is_empty() {
+                    Self::save_translate_config_with_conn(&tx, tc)?;
                 }
             }
+
+            tx.commit()
+                .map_err(|e| PebbleError::Storage(format!("Failed to commit: {e}")))?;
+            Ok(())
         })
     }
 }
