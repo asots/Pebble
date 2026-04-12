@@ -1,4 +1,5 @@
 use crate::state::AppState;
+use semver::Version;
 use serde::Serialize;
 use tauri::State;
 
@@ -41,8 +42,13 @@ pub async fn check_for_update(current_version: String) -> Result<UpdateInfo, Str
         .unwrap_or("https://github.com/QingJ01/Pebble/releases")
         .to_string();
 
+    let has_update = match (Version::parse(&latest), Version::parse(&current_version)) {
+        (Ok(latest_ver), Ok(current_ver)) => latest_ver > current_ver,
+        _ => latest != current_version,
+    };
+
     Ok(UpdateInfo {
-        is_newer: latest != current_version,
+        is_newer: has_update,
         latest_version: latest,
         release_url,
     })
