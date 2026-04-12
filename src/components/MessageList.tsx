@@ -95,10 +95,14 @@ export default function MessageList({
     const ids = [...selectedMessageIds];
     if (ids.length === 0) return;
     if (action === "delete") {
+      const count = ids.length;
       const ok = await confirm({
-        title: t("batch.deleteTitle"),
-        message: t("batch.deleteConfirm", { count: ids.length }),
-        confirmLabel: t("common.delete"),
+        title: t("batch.deleteTitle", { count, defaultValue: `Delete ${count} messages?` }),
+        message: t("batch.deleteConfirm", {
+          count,
+          defaultValue: `This will move ${count} message(s) to Trash. This action can be undone by restoring from Trash.`,
+        }),
+        confirmLabel: t("batch.deleteButton", { defaultValue: "Delete" }),
         destructive: true,
       });
       if (!ok) return;

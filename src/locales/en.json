@@ -477,7 +477,8 @@
     "markUnread": "Mark as unread",
     "success": "{{count}} messages updated",
     "failed": "Batch operation failed",
-    "deleteTitle": "Delete Messages",
-    "deleteConfirm": "Permanently delete {{count}} messages?"
+    "deleteTitle": "Delete {{count}} messages?",
+    "deleteConfirm": "This will move {{count}} message(s) to Trash. This action can be undone by restoring from Trash.",
+    "deleteButton": "Delete"
   }
 }

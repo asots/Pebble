@@ -477,7 +477,8 @@
     "markUnread": "标记为未读",
     "success": "{{count}} 条消息已更新",
     "failed": "批量操作失败",
-    "deleteTitle": "删除邮件",
-    "deleteConfirm": "确定永久删除 {{count}} 封邮件？"
+    "deleteTitle": "删除 {{count}} 封邮件？",
+    "deleteConfirm": "将 {{count}} 封邮件移至废纸篓。可以从废纸篓恢复。",
+    "deleteButton": "删除"
   }
 }
