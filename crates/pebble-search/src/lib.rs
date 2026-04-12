@@ -218,6 +218,23 @@ impl TantivySearch {
         Ok(())
     }
 
+    /// Remove all documents for an account from the search index.
+    pub fn delete_by_account(&self, account_id: &str) -> Result<()> {
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|e| PebbleError::Internal(format!("Lock poisoned: {e}")))?;
+        writer.delete_term(Term::from_field_text(self.schema.account_id, account_id));
+        writer
+            .commit()
+            .map_err(|e| PebbleError::Internal(format!("Failed to commit: {e}")))?;
+        drop(writer);
+        self.reader
+            .reload()
+            .map_err(|e| PebbleError::Internal(format!("Failed to reload reader: {e}")))?;
+        Ok(())
+    }
+
     pub fn search(&self, query_text: &str, limit: usize) -> Result<Vec<SearchHit>> {
         let ss = &self.schema;
 

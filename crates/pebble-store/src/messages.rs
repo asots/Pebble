@@ -879,6 +879,21 @@ impl Store {
         })
     }
 
+    /// Return all message IDs belonging to an account (including soft-deleted).
+    pub fn list_message_ids_by_account(&self, account_id: &str) -> Result<Vec<String>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM messages WHERE account_id = ?1"
+            )?;
+            let rows = stmt.query_map(params![account_id], |row| row.get(0))?;
+            let mut ids = Vec::new();
+            for row in rows {
+                ids.push(row?);
+            }
+            Ok(ids)
+        })
+    }
+
     /// List all messages in a thread, ordered chronologically.
     pub fn list_messages_by_thread(&self, thread_id: &str) -> Result<Vec<Message>> {
         self.with_read(|conn| {

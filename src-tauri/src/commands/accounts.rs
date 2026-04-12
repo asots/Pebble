@@ -299,7 +299,7 @@ pub async fn delete_account(
     state: State<'_, AppState>,
     account_id: String,
 ) -> std::result::Result<(), PebbleError> {
-    // Stop sync if running
+    // 1. Stop sync if running
     {
         let mut handles = state.sync_handles.lock().await;
         if let Some(handle) = handles.remove(&account_id) {
@@ -308,5 +308,38 @@ pub async fn delete_account(
         }
     }
 
-    state.store.delete_account(&account_id)
+    // 2. Collect message IDs for attachment cleanup (before DB delete)
+    let message_ids = match state.store.list_message_ids_by_account(&account_id) {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::warn!("Failed to collect message IDs for attachment cleanup (account {account_id}): {e}");
+            Vec::new()
+        }
+    };
+
+    // 3. Remove all documents from search index
+    if let Err(e) = state.search.delete_by_account(&account_id) {
+        tracing::warn!("Failed to clean search index for account {account_id}: {e}");
+    }
+
+    // 4. Delete account from DB (CASCADE handles related rows)
+    state.store.delete_account(&account_id)?;
+
+    // 5. Clean up attachment files on disk
+    let attachments_dir = state.attachments_dir.clone();
+    let account_id_for_log = account_id.clone();
+    if let Err(e) = tokio::task::spawn_blocking(move || {
+        for msg_id in &message_ids {
+            let msg_dir = attachments_dir.join(msg_id);
+            if msg_dir.exists() {
+                if let Err(e) = std::fs::remove_dir_all(&msg_dir) {
+                    tracing::warn!("Failed to remove attachments for message {msg_id}: {e}");
+                }
+            }
+        }
+    }).await {
+        tracing::warn!("Attachment cleanup task failed for account {account_id_for_log}: {e}");
+    }
+
+    Ok(())
 }
