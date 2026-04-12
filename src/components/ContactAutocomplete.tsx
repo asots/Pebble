@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { searchContacts, type KnownContact } from "@/lib/api";
 
@@ -16,6 +16,7 @@ export default function ContactAutocomplete({
   placeholder,
 }: ContactAutocompleteProps) {
   const { t } = useTranslation();
+  const instanceId = useId();
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState<KnownContact[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -218,6 +219,11 @@ export default function ContactAutocomplete({
             }
           }}
           placeholder={value.length === 0 ? placeholder : undefined}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={showDropdown && suggestions.length > 0}
+          aria-controls={`${instanceId}-listbox`}
+          aria-activedescendant={activeIndex >= 0 ? `${instanceId}-option-${activeIndex}` : undefined}
           style={{
             flex: 1,
             minWidth: "120px",
@@ -232,6 +238,8 @@ export default function ContactAutocomplete({
 
       {showDropdown && (
         <div
+          id={`${instanceId}-listbox`}
+          role="listbox"
           style={{
             position: "absolute",
             top: "100%",
@@ -271,6 +279,9 @@ export default function ContactAutocomplete({
             suggestions.map((contact, idx) => (
               <div
                 key={contact.address}
+                role="option"
+                id={`${instanceId}-option-${idx}`}
+                aria-selected={idx === activeIndex}
                 onClick={() => selectContact(contact)}
                 onMouseEnter={() => setActiveIndex(idx)}
                 style={{

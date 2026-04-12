@@ -605,14 +605,18 @@ export default function ComposeView() {
           onClick={cancelCloseCompose}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="compose-leave-title"
             style={{
               backgroundColor: "var(--color-bg-primary, #fff)",
               borderRadius: "8px", padding: "24px", minWidth: "320px",
               boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
             }}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => { if (e.key === "Escape") cancelCloseCompose(); }}
           >
-            <h3 style={{ margin: "0 0 8px", fontSize: "15px", fontWeight: 600 }}>
+            <h3 id="compose-leave-title" style={{ margin: "0 0 8px", fontSize: "15px", fontWeight: 600 }}>
               {t("compose.leaveTitle", "Discard draft?")}
             </h3>
             <p style={{ margin: "0 0 20px", fontSize: "13px", color: "var(--color-text-secondary)" }}>

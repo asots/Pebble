@@ -445,11 +445,11 @@ function EditAccountModal({ account, onClose, onSaved }: {
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             <div style={fieldStyle}>
               <label style={labelStyle}>{t("accountSetup.displayName")}</label>
-              <input style={inputStyle} type="text" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+              <input aria-label={t("accountSetup.displayName")} style={inputStyle} type="text" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
             </div>
             <div style={fieldStyle}>
               <label style={labelStyle}>{t("accountSetup.emailAddress")}</label>
-              <input ref={emailInputRef} style={inputStyle} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <input aria-label={t("accountSetup.emailAddress")} ref={emailInputRef} style={inputStyle} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
             {isOAuth ? (
               <div
@@ -472,17 +472,17 @@ function EditAccountModal({ account, onClose, onSaved }: {
               <>
                 <div style={fieldStyle}>
                   <label style={labelStyle}>{t("accountSetup.password")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.leaveEmptyKeep", "leave empty to keep current")})</span></label>
-                  <input style={inputStyle} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                  <input aria-label={t("accountSetup.password")} style={inputStyle} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "12px" }}>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>{t("accountSetup.imapHost")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
-                    <input style={inputStyle} type="text" value={imapHost} onChange={(e) => setImapHost(e.target.value)} placeholder={t("settings.leaveEmptyKeep")} />
+                    <input aria-label={t("accountSetup.imapHost")} style={inputStyle} type="text" value={imapHost} onChange={(e) => setImapHost(e.target.value)} placeholder={t("settings.leaveEmptyKeep")} />
                   </div>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>{t("accountSetup.imapPort")}</label>
-                    <input style={{ ...inputStyle, width: "70px" }} type="number" value={imapPort} onChange={(e) => setImapPort(e.target.value)} />
+                    <input aria-label={t("accountSetup.imapPort")} style={{ ...inputStyle, width: "70px" }} type="number" value={imapPort} onChange={(e) => setImapPort(e.target.value)} />
                   </div>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>{t("accountSetup.security", "Security")}</label>
@@ -498,11 +498,11 @@ function EditAccountModal({ account, onClose, onSaved }: {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "12px" }}>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>{t("accountSetup.smtpHost")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
-                    <input style={inputStyle} type="text" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} placeholder={t("settings.leaveEmptyKeep")} />
+                    <input aria-label={t("accountSetup.smtpHost")} style={inputStyle} type="text" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} placeholder={t("settings.leaveEmptyKeep")} />
                   </div>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>{t("accountSetup.smtpPort")}</label>
-                    <input style={{ ...inputStyle, width: "70px" }} type="number" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
+                    <input aria-label={t("accountSetup.smtpPort")} style={{ ...inputStyle, width: "70px" }} type="number" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} />
                   </div>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>{t("accountSetup.security", "Security")}</label>
@@ -519,11 +519,11 @@ function EditAccountModal({ account, onClose, onSaved }: {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px" }}>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>{t("accountSetup.proxyHost", "SOCKS5 Proxy")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
-                    <input style={inputStyle} type="text" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} placeholder="127.0.0.1" />
+                    <input aria-label={t("accountSetup.proxyHost", "SOCKS5 Proxy")} style={inputStyle} type="text" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} placeholder="127.0.0.1" />
                   </div>
                   <div style={fieldStyle}>
                     <label style={labelStyle}>{t("accountSetup.proxyPort", "Port")}</label>
-                    <input style={{ ...inputStyle, width: "80px" }} type="number" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} placeholder="7890" />
+                    <input aria-label={t("accountSetup.proxyPort", "Port")} style={{ ...inputStyle, width: "80px" }} type="number" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} placeholder="7890" />
                   </div>
                 </div>
               </>
