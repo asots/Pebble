@@ -2,9 +2,10 @@ import { useRef, useMemo, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Inbox, Archive, Trash2, MailOpen, MailCheck, X } from "lucide-react";
+import { Inbox, Archive, Trash2, MailOpen, MailCheck, Star, X } from "lucide-react";
 import type { MessageSummary } from "@/lib/api";
-import { getMessageLabelsBatch, batchArchive, batchDelete, batchMarkRead } from "@/lib/api";
+import { getMessageLabelsBatch, batchArchive, batchDelete, batchMarkRead, batchStar } from "@/lib/api";
+import { useFoldersQuery } from "@/hooks/queries";
 import { useMailStore } from "@/stores/mail.store";
 import { useToastStore } from "@/stores/toast.store";
 import { useConfirmStore } from "@/stores/confirm.store";
@@ -40,6 +41,13 @@ export default function MessageList({
   const clearSelection = useMailStore((s) => s.clearSelection);
   const [batchLoading, setBatchLoading] = useState(false);
   const confirm = useConfirmStore((s) => s.confirm);
+  const activeAccountId = useMailStore((s) => s.activeAccountId);
+  const activeFolderId = useMailStore((s) => s.activeFolderId);
+  const { data: folders = [] } = useFoldersQuery(activeAccountId);
+  // Offer spam action only when NOT already viewing the spam folder
+  const activeFolder = folders.find((f) => f.id === activeFolderId);
+  const spamFolder = folders.find((f) => f.role === "spam");
+  const spamFolderId = activeFolder?.role !== "spam" ? spamFolder?.id : undefined;
   const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
   const messageIdsKey = useMemo(() => messageIds.join(","), [messageIds]);
   const { data: labelsByMessage = {} } = useQuery({
@@ -91,7 +99,7 @@ export default function MessageList({
     );
   }
 
-  async function handleBatchAction(action: "archive" | "delete" | "markRead" | "markUnread") {
+  async function handleBatchAction(action: "archive" | "delete" | "markRead" | "markUnread" | "star" | "unstar") {
     const ids = [...selectedMessageIds];
     if (ids.length === 0) return;
     if (action === "delete") {
@@ -113,7 +121,9 @@ export default function MessageList({
       if (action === "archive") count = await batchArchive(ids);
       else if (action === "delete") count = await batchDelete(ids);
       else if (action === "markRead") count = await batchMarkRead(ids, true);
-      else count = await batchMarkRead(ids, false);
+      else if (action === "markUnread") count = await batchMarkRead(ids, false);
+      else if (action === "star") count = await batchStar(ids, true);
+      else count = await batchStar(ids, false);
       queryClient.invalidateQueries({ queryKey: ["messages"] });
       addToast({ message: t("batch.success", { count }), type: "success" });
       clearSelection();
@@ -151,6 +161,8 @@ export default function MessageList({
               <BatchBtn icon={Trash2} label={t("common.delete")} onClick={() => handleBatchAction("delete")} disabled={batchLoading} />
               <BatchBtn icon={MailOpen} label={t("batch.markRead")} onClick={() => handleBatchAction("markRead")} disabled={batchLoading} />
               <BatchBtn icon={MailCheck} label={t("batch.markUnread")} onClick={() => handleBatchAction("markUnread")} disabled={batchLoading} />
+              <BatchBtn icon={Star} label={t("batch.star", "Star")} onClick={() => handleBatchAction("star")} disabled={batchLoading} />
+              <BatchBtn icon={Star} label={t("batch.unstar", "Unstar")} onClick={() => handleBatchAction("unstar")} disabled={batchLoading} />
             </>
           )}
           <BatchBtn icon={X} label={t("common.close")} onClick={toggleBatchMode} disabled={false} />
@@ -192,6 +204,7 @@ export default function MessageList({
                   batchMode={batchMode}
                   batchSelected={selectedMessageIds.has(message.id)}
                   onToggleBatchSelect={toggleMessageSelection}
+                  spamFolderId={spamFolderId}
                 />
               </div>
             );

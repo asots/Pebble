@@ -196,6 +196,10 @@ export async function restoreMessage(messageId: string): Promise<void> {
   return invoke<void>("restore_message", { messageId });
 }
 
+export async function moveToFolder(messageId: string, targetFolderId: string): Promise<void> {
+  return invoke<void>("move_to_folder", { messageId, targetFolderId });
+}
+
 export async function emptyTrash(accountId: string): Promise<number> {
   return invoke<number>("empty_trash", { accountId });
 }
@@ -334,6 +338,10 @@ export async function batchDelete(messageIds: string[]): Promise<number> {
 
 export async function batchMarkRead(messageIds: string[], isRead: boolean): Promise<number> {
   return invoke<number>("batch_mark_read", { messageIds, isRead });
+}
+
+export async function batchStar(messageIds: string[], starred: boolean): Promise<number> {
+  return invoke<number>("batch_star", { messageIds, starred });
 }
 
 // ─── Translate API ───────────────────────────────────────────────────────────

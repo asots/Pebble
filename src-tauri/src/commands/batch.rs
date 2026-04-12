@@ -286,3 +286,80 @@ pub async fn batch_mark_read(
     );
     Ok(success_count)
 }
+
+#[tauri::command]
+pub async fn batch_star(
+    state: State<'_, AppState>,
+    message_ids: Vec<String>,
+    starred: bool,
+) -> std::result::Result<u32, PebbleError> {
+    if message_ids.is_empty() {
+        return Ok(0);
+    }
+    if message_ids.len() > 1000 {
+        return Err(PebbleError::Internal("batch_star: too many messages (max 1000)".to_string()));
+    }
+
+    let store = state.store.clone();
+    let ids = message_ids.clone();
+    let groups = tokio::task::spawn_blocking(move || {
+        group_by_account(&store, &ids)
+    })
+    .await
+    .map_err(|e| PebbleError::Internal(format!("Task join error: {e}")))??;
+
+    // Remote sync — connect once per account, operate, disconnect
+    for (account_id, (provider_type, messages)) in &groups {
+        if let Ok(conn) = ConnectedProvider::connect(&state, account_id, provider_type).await {
+            match &conn {
+                ConnectedProvider::Gmail(provider) => {
+                    let (add, remove) = if starred {
+                        (vec!["STARRED".to_string()], vec![])
+                    } else {
+                        (vec![], vec!["STARRED".to_string()])
+                    };
+                    for msg in messages {
+                        if let Err(e) = provider.modify_labels(&msg.remote_id, &add, &remove).await {
+                            warn!("Gmail batch star failed for {}: {e}", msg.id);
+                        }
+                    }
+                }
+                ConnectedProvider::Outlook(provider) => {
+                    for msg in messages {
+                        if let Err(e) = provider.update_flag_status(&msg.remote_id, starred).await {
+                            warn!("Outlook batch star failed for {}: {e}", msg.id);
+                        }
+                    }
+                }
+                ConnectedProvider::Imap(imap) => {
+                    for msg in messages {
+                        if let Ok(uid) = parse_imap_uid(&msg.remote_id) {
+                            if let Ok(folder) = find_message_folder(&state, &msg.id, account_id) {
+                                if let Err(e) = imap.set_flags(&folder.remote_id, uid, None, Some(starred)).await {
+                                    warn!("IMAP batch star failed for {}: {e}", msg.id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            conn.disconnect().await;
+        }
+    }
+
+    // Local bulk flag update
+    let changes: Vec<(String, Option<bool>, Option<bool>)> = message_ids
+        .iter()
+        .map(|id| (id.clone(), None, Some(starred)))
+        .collect();
+    state.store.bulk_update_flags(&changes)?;
+    let success_count = message_ids.len() as u32;
+
+    info!(
+        "Batch star({}): {}/{} messages updated",
+        starred,
+        success_count,
+        message_ids.len()
+    );
+    Ok(success_count)
+}
