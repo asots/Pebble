@@ -645,7 +645,7 @@ impl SyncWorker {
             // Step 3: Fetch remote flags (with MODSEQ when possible)
             let uids: Vec<u32> = local_state
                 .iter()
-                .filter_map(|(_, remote_id, _, _)| remote_id.parse().ok())
+                .filter_map(|(_, remote_id, _, _, _)| remote_id.parse().ok())
                 .collect();
 
             // Try fetching flags with MODSEQ to update the stored value
@@ -693,7 +693,7 @@ impl SyncWorker {
             .await?;
         let local_remote_ids: Vec<(String, String)> = local_state
             .iter()
-            .map(|(id, rid, _, _)| (id.clone(), rid.clone()))
+            .map(|(id, rid, _, _, _)| (id.clone(), rid.clone()))
             .collect();
         let deleted = reconcile::detect_deletions(&local_remote_ids, &server_uids);
         if !deleted.is_empty() {

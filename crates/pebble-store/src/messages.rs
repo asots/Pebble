@@ -669,15 +669,15 @@ impl Store {
         })
     }
 
-    /// List (message_id, remote_id, is_read, is_starred) for non-deleted messages in a folder.
+    /// List (message_id, remote_id, is_read, is_starred, updated_at) for non-deleted messages in a folder.
     pub fn list_remote_ids_by_folder(
         &self,
         account_id: &str,
         folder_id: &str,
-    ) -> Result<Vec<(String, String, bool, bool)>> {
+    ) -> Result<Vec<(String, String, bool, bool, i64)>> {
         self.with_read(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT m.id, m.remote_id, m.is_read, m.is_starred
+                "SELECT m.id, m.remote_id, m.is_read, m.is_starred, m.updated_at
                  FROM messages m
                  JOIN message_folders mf ON m.id = mf.message_id
                  WHERE m.account_id = ?1 AND mf.folder_id = ?2 AND m.is_deleted = 0"
@@ -688,6 +688,7 @@ impl Store {
                     row.get::<_, String>(1)?,
                     row.get::<_, i32>(2)? != 0,
                     row.get::<_, i32>(3)? != 0,
+                    row.get::<_, i64>(4)?,
                 ))
             })?;
             let mut results = Vec::new();
