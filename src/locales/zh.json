@@ -163,7 +163,8 @@
     "restorePreviewAccounts": "账户：{{count}}",
     "restorePreviewRules": "规则：{{count}}",
     "restorePreviewKanban": "看板卡片：{{count}}",
-    "restorePreviewSize": "大小：{{kb}} KB"
+    "restorePreviewSize": "大小：{{kb}} KB",
+    "scopeNotice": "WebDAV 备份仅包含设置、规则和看板数据，不包含邮件消息。"
   },
   "about": {
     "title": "关于",

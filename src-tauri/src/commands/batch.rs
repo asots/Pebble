@@ -38,6 +38,9 @@ pub async fn batch_archive(
     if message_ids.is_empty() {
         return Ok(0);
     }
+    if message_ids.len() > 1000 {
+        return Err(PebbleError::Internal("Batch size exceeds limit of 1000".into()));
+    }
 
     let store = state.store.clone();
     let ids = message_ids.clone();
@@ -138,6 +141,9 @@ pub async fn batch_delete(
     if message_ids.is_empty() {
         return Ok(0);
     }
+    if message_ids.len() > 1000 {
+        return Err(PebbleError::Internal("Batch size exceeds limit of 1000".into()));
+    }
 
     let store = state.store.clone();
     let ids = message_ids.clone();
@@ -221,6 +227,9 @@ pub async fn batch_mark_read(
 ) -> std::result::Result<u32, PebbleError> {
     if message_ids.is_empty() {
         return Ok(0);
+    }
+    if message_ids.len() > 1000 {
+        return Err(PebbleError::Internal("Batch size exceeds limit of 1000".into()));
     }
 
     let store = state.store.clone();

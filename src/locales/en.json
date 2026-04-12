@@ -163,7 +163,8 @@
     "restorePreviewAccounts": "Accounts: {{count}}",
     "restorePreviewRules": "Rules: {{count}}",
     "restorePreviewKanban": "Kanban cards: {{count}}",
-    "restorePreviewSize": "Size: {{kb}} KB"
+    "restorePreviewSize": "Size: {{kb}} KB",
+    "scopeNotice": "WebDAV backup only includes settings, rules, and kanban data. Email messages are not included."
   },
   "about": {
     "title": "About",

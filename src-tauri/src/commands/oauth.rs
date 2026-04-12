@@ -90,15 +90,43 @@ pub(crate) fn outlook_oauth_config() -> OAuthConfig {
     }
 }
 
+fn is_placeholder(value: &str) -> bool {
+    let v = value.trim();
+    v.is_empty()
+        || v.eq_ignore_ascii_case("YOUR_CLIENT_ID")
+        || v.eq_ignore_ascii_case("YOUR_CLIENT_SECRET")
+        || v.ends_with("_PLACEHOLDER")
+}
+
+fn validate_oauth_config(config: &OAuthConfig, provider: &str) -> Result<(), PebbleError> {
+    if is_placeholder(&config.client_id) {
+        return Err(PebbleError::Internal(format!(
+            "OAuth client_id for '{provider}' is not configured. \
+             Set the appropriate environment variable before starting the OAuth flow."
+        )));
+    }
+    if let Some(secret) = &config.client_secret {
+        if is_placeholder(secret) {
+            return Err(PebbleError::Internal(format!(
+                "OAuth client_secret for '{provider}' is not configured. \
+                 Set the appropriate environment variable before starting the OAuth flow."
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Resolve an `OAuthConfig` from a provider name, or return an error.
 pub(crate) fn config_for_provider(provider: &str) -> Result<OAuthConfig, PebbleError> {
-    match provider.to_lowercase().as_str() {
-        "gmail" => Ok(gmail_oauth_config()),
-        "outlook" => Ok(outlook_oauth_config()),
-        _ => Err(PebbleError::UnsupportedProvider(format!(
+    let config = match provider.to_lowercase().as_str() {
+        "gmail" => gmail_oauth_config(),
+        "outlook" => outlook_oauth_config(),
+        _ => return Err(PebbleError::UnsupportedProvider(format!(
             "Unknown OAuth provider: {provider}"
         ))),
-    }
+    };
+    validate_oauth_config(&config, provider)?;
+    Ok(config)
 }
 
 /// Resolve a `ProviderType` from a provider name.
