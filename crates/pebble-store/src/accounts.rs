@@ -1,7 +1,61 @@
 use pebble_core::{Account, PebbleError, ProviderType, Result};
 use rusqlite::{self, OptionalExtension};
+use serde::{Deserialize, Serialize};
 
 use crate::Store;
+
+/// Typed view over an account's `sync_state` JSON blob.
+///
+/// The column itself remains a flexible JSON object on disk (so provider
+/// implementations can tuck their own bookkeeping under `extra` without a
+/// migration), but every known field has an explicit name and type here.
+/// Callers should go through [`Store::get_sync_state`] and
+/// [`Store::update_sync_state`] rather than parsing raw JSON, so that
+/// read-modify-write cycles don't clobber sibling fields by accident.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SyncState {
+    /// Provider slug as persisted: `"gmail"`, `"outlook"`, or `"imap"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+
+    /// Last sync cursor — opaque to the store; interpreted by the provider
+    /// (e.g. IMAP UID + modseq, Gmail historyId, Outlook deltaLink).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_sync_cursor: Option<String>,
+
+    /// Legacy inline IMAP config, present on accounts that predate the move
+    /// of credentials into `auth_data`. New accounts should not populate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imap: Option<serde_json::Value>,
+
+    /// Legacy inline SMTP config, same provenance as `imap`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub smtp: Option<serde_json::Value>,
+
+    /// Any fields we don't yet model — preserved verbatim on write so
+    /// round-tripping through [`Store::update_sync_state`] never drops data.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl SyncState {
+    /// Parse a `sync_state` JSON string into a typed `SyncState`.
+    /// An empty or `None` column is treated as [`SyncState::default`].
+    pub fn from_json_opt(raw: Option<&str>) -> Result<Self> {
+        match raw {
+            None => Ok(Self::default()),
+            Some(s) if s.trim().is_empty() => Ok(Self::default()),
+            Some(s) => serde_json::from_str(s)
+                .map_err(|e| PebbleError::Storage(format!("Invalid sync_state JSON: {e}"))),
+        }
+    }
+
+    /// Serialize back to the JSON string format stored in the DB.
+    pub fn to_json(&self) -> Result<String> {
+        serde_json::to_string(self)
+            .map_err(|e| PebbleError::Storage(format!("Failed to serialize sync_state: {e}")))
+    }
+}
 
 fn provider_to_str(p: &ProviderType) -> &'static str {
     match p {
@@ -127,61 +181,67 @@ impl Store {
         })
     }
 
-    /// Get the sync cursor for an account from the sync_state JSON.
-    pub fn get_sync_cursor(&self, account_id: &str) -> Result<Option<String>> {
+    /// Read the `sync_state` column as a typed [`SyncState`].
+    ///
+    /// Missing column or empty string returns [`SyncState::default`]. The
+    /// account must exist; a missing account row returns `Ok(None)`.
+    pub fn get_sync_state(&self, account_id: &str) -> Result<Option<SyncState>> {
         self.with_read(|conn| {
-            let result: Option<String> = conn
+            let row: Option<Option<String>> = conn
                 .query_row(
                     "SELECT sync_state FROM accounts WHERE id = ?1",
                     rusqlite::params![account_id],
-                    |row| row.get(0),
+                    |row| row.get::<_, Option<String>>(0),
                 )
-                .optional()?
-                .flatten();
-
-            if let Some(json_str) = result {
-                let value: serde_json::Value = serde_json::from_str(&json_str)
-                    .map_err(|e| PebbleError::Storage(format!("Invalid sync_state JSON: {e}")))?;
-                Ok(value
-                    .get("last_sync_cursor")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()))
-            } else {
-                Ok(None)
+                .optional()?;
+            match row {
+                None => Ok(None),
+                Some(raw) => Ok(Some(SyncState::from_json_opt(raw.as_deref())?)),
             }
         })
     }
 
-    /// Set the sync cursor in the sync_state JSON without clobbering other fields.
-    pub fn set_sync_cursor(&self, account_id: &str, cursor: &str) -> Result<()> {
+    /// Read-modify-write the `sync_state` column safely.
+    ///
+    /// The closure receives the current state (default if missing) and may
+    /// mutate any fields; unknown fields in `extra` are preserved so we
+    /// never drop data we don't yet model. Runs inside a single write txn.
+    pub fn update_sync_state<F>(&self, account_id: &str, f: F) -> Result<()>
+    where
+        F: FnOnce(&mut SyncState),
+    {
         self.with_write(|conn| {
-            // Read current sync_state
             let current: Option<String> = conn
                 .query_row(
                     "SELECT sync_state FROM accounts WHERE id = ?1",
                     rusqlite::params![account_id],
-                    |row| row.get(0),
+                    |row| row.get::<_, Option<String>>(0),
                 )
                 .optional()?
                 .flatten();
-
-            let mut value: serde_json::Value = if let Some(json_str) = current {
-                serde_json::from_str(&json_str).unwrap_or(serde_json::json!({}))
-            } else {
-                serde_json::json!({})
-            };
-
-            value["last_sync_cursor"] = serde_json::Value::String(cursor.to_string());
-
-            let new_json = serde_json::to_string(&value)
-                .map_err(|e| PebbleError::Storage(format!("Failed to serialize sync_state: {e}")))?;
-
+            let mut state = SyncState::from_json_opt(current.as_deref())?;
+            f(&mut state);
+            let new_json = state.to_json()?;
             let now = pebble_core::now_timestamp();
             conn.execute(
                 "UPDATE accounts SET sync_state = ?1, updated_at = ?2 WHERE id = ?3",
                 rusqlite::params![new_json, now, account_id],
             )?;
             Ok(())
+        })
+    }
+
+    /// Get the sync cursor for an account. Thin wrapper over [`get_sync_state`].
+    pub fn get_sync_cursor(&self, account_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .get_sync_state(account_id)?
+            .and_then(|s| s.last_sync_cursor))
+    }
+
+    /// Set the sync cursor in the sync_state JSON without clobbering other fields.
+    pub fn set_sync_cursor(&self, account_id: &str, cursor: &str) -> Result<()> {
+        self.update_sync_state(account_id, |s| {
+            s.last_sync_cursor = Some(cursor.to_string());
         })
     }
 }

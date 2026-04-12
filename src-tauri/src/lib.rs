@@ -50,33 +50,10 @@ pub fn run() {
             let search_needs_reindex = search.needs_reindex();
             tracing::info!("Search index initialized successfully");
 
-            // Determine if search index needs rebuilding
-            let needs_rebuild = if search_needs_reindex {
-                tracing::info!("Search index schema changed, rebuild required");
-                true
-            } else if search.doc_count() == 0 {
-                let db_count = store.count_all_messages().unwrap_or(0);
-                if db_count > 0 {
-                    tracing::info!("Search index empty but DB has {db_count} messages, rebuild required");
-                    true
-                } else {
-                    false
-                }
-            } else {
-                // Consistency check: if counts diverge by >10%, rebuild
-                let db_count = store.count_all_messages().unwrap_or(0);
-                let idx_count = search.doc_count();
-                let diff = (db_count as i64 - idx_count as i64).unsigned_abs();
-                let threshold = (db_count.max(idx_count) / 10).max(5);
-                if diff > threshold {
-                    tracing::warn!(
-                        "SQLite/Tantivy count mismatch (db={db_count}, index={idx_count}), rebuilding"
-                    );
-                    true
-                } else {
-                    false
-                }
-            };
+            // The full `SELECT COUNT(*) FROM messages` consistency check used
+            // to run here and block the main window from appearing. It now
+            // runs inside the background reindex task below, so startup can
+            // proceed without waiting on a full-table scan.
 
             let crypto = pebble_crypto::CryptoService::init()?;
             tracing::info!("Crypto service initialized successfully");
@@ -101,12 +78,44 @@ pub fn run() {
                 snooze_stop_rx,
             ));
 
-            // Rebuild search index in background if needed (non-blocking)
-            if needs_rebuild {
-                let store_for_reindex = state.store.clone();
-                let search_for_reindex = state.search.clone();
-                let app_for_reindex = app_handle.clone();
-                tauri::async_runtime::spawn_blocking(move || {
+            // Decide whether to rebuild the search index, and do it in the
+            // background so startup never waits on the DB count query. The
+            // task itself performs the consistency check (comparing the
+            // index doc count to the live DB row count) — the main thread
+            // only needs the cheap schema-version flag.
+            let store_for_reindex = state.store.clone();
+            let search_for_reindex = state.search.clone();
+            let app_for_reindex = app_handle.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let needs_rebuild = if search_needs_reindex {
+                    tracing::info!("Search index schema changed, rebuild required");
+                    true
+                } else {
+                    let idx_count = search_for_reindex.doc_count();
+                    let db_count = store_for_reindex.count_all_messages().unwrap_or(0);
+                    if idx_count == 0 && db_count > 0 {
+                        tracing::info!(
+                            "Search index empty but DB has {db_count} messages, rebuild required"
+                        );
+                        true
+                    } else if idx_count > 0 {
+                        // Consistency check: if counts diverge by >10%, rebuild
+                        let diff = (db_count as i64 - idx_count as i64).unsigned_abs();
+                        let threshold = (db_count.max(idx_count) / 10).max(5);
+                        if diff > threshold {
+                            tracing::warn!(
+                                "SQLite/Tantivy count mismatch (db={db_count}, index={idx_count}), rebuilding"
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+
+                if needs_rebuild {
                     tracing::info!("Starting background search index rebuild...");
                     match commands::sync_cmd::do_reindex(&store_for_reindex, &search_for_reindex) {
                         Ok(n) => {
@@ -115,8 +124,8 @@ pub fn run() {
                         }
                         Err(e) => tracing::error!("Background reindex failed: {e}"),
                     }
-                });
-            }
+                }
+            });
 
             // Auto-resume sync for all existing accounts
             tauri::async_runtime::spawn(async move {
@@ -185,6 +194,7 @@ pub fn run() {
             commands::batch::batch_mark_read,
             commands::cloud_sync::test_webdav_connection,
             commands::cloud_sync::backup_to_webdav,
+            commands::cloud_sync::preview_webdav_backup,
             commands::cloud_sync::restore_from_webdav,
             commands::contacts::search_contacts,
             commands::advanced_search::advanced_search,

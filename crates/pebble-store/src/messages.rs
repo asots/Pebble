@@ -263,6 +263,74 @@ impl Store {
         })
     }
 
+    /// List full messages for an entire account, paginated by `(date DESC, id)`.
+    ///
+    /// Unlike [`list_full_messages_by_folder`], each message is returned at most
+    /// once, even if it lives in multiple folders (e.g. Gmail labels). Intended
+    /// for operations that must visit each stored message exactly once, such as
+    /// search reindexing.
+    pub fn list_full_messages_by_account(
+        &self,
+        account_id: &str,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<Message>> {
+        self.with_read(|conn| {
+            let sql = format!(
+                "SELECT {} FROM messages
+                 WHERE account_id = ?1 AND is_deleted = 0
+                 ORDER BY date DESC, id ASC
+                 LIMIT ?2 OFFSET ?3",
+                MSG_SELECT,
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map(params![account_id, limit, offset], row_to_message)?;
+            let mut messages = Vec::new();
+            for row in rows {
+                messages.push(row?);
+            }
+            Ok(messages)
+        })
+    }
+
+    /// Fetch folder IDs for a batch of message IDs in a single query.
+    ///
+    /// Returns a map of `message_id -> Vec<folder_id>`. Messages with no
+    /// folder membership are absent from the map (callers should default
+    /// to an empty slice).
+    pub fn get_message_folder_ids_batch(
+        &self,
+        message_ids: &[String],
+    ) -> Result<HashMap<String, Vec<String>>> {
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        self.with_read(|conn| {
+            let placeholders: Vec<String> =
+                (1..=message_ids.len()).map(|i| format!("?{}", i)).collect();
+            let sql = format!(
+                "SELECT message_id, folder_id FROM message_folders
+                 WHERE message_id IN ({})",
+                placeholders.join(", "),
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let param_values: Vec<&dyn rusqlite::types::ToSql> = message_ids
+                .iter()
+                .map(|s| s as &dyn rusqlite::types::ToSql)
+                .collect();
+            let rows = stmt.query_map(param_values.as_slice(), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            let mut out: HashMap<String, Vec<String>> = HashMap::new();
+            for row in rows {
+                let (mid, fid) = row?;
+                out.entry(mid).or_default().push(fid);
+            }
+            Ok(out)
+        })
+    }
+
     /// List messages across multiple folders.
     pub fn list_messages_by_folders(
         &self,
@@ -831,6 +899,12 @@ impl Store {
     }
 
     /// List thread summaries for a folder, ordered by most recent message.
+    ///
+    /// The `max_date` subquery is scoped to the target folder so we aggregate
+    /// only over messages that actually live in this folder. This avoids a
+    /// full-table thread scan and also ensures the snippet reflects the most
+    /// recent message *in this folder* (not a possibly-newer message that sits
+    /// in a different folder, which previously produced an empty snippet).
     pub fn list_threads_by_folder(
         &self,
         folder_id: &str,
@@ -853,10 +927,13 @@ impl Store {
                      FROM messages m
                      JOIN message_folders mf ON m.id = mf.message_id
                      JOIN (
-                        SELECT thread_id, MAX(date) as md
-                        FROM messages
-                        WHERE is_deleted = 0 AND thread_id IS NOT NULL
-                        GROUP BY thread_id
+                        SELECT m2.thread_id, MAX(m2.date) as md
+                        FROM messages m2
+                        JOIN message_folders mf2 ON m2.id = mf2.message_id
+                        WHERE mf2.folder_id = ?1
+                          AND m2.is_deleted = 0
+                          AND m2.thread_id IS NOT NULL
+                        GROUP BY m2.thread_id
                      ) max_date ON m.thread_id = max_date.thread_id
                      WHERE mf.folder_id = ?1 AND m.is_deleted = 0 AND m.thread_id IS NOT NULL
                      GROUP BY m.thread_id

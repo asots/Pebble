@@ -1,3 +1,7 @@
+use crate::commands::oauth::{
+    build_oauth_token_refresher, decode_oauth_account_tokens, gmail_oauth_config,
+    outlook_oauth_config,
+};
 use crate::events;
 use crate::state::{AppState, SyncHandle};
 use pebble_core::{PebbleError, ProviderType};
@@ -106,76 +110,17 @@ async fn start_sync_inner(
     let task = match account.provider {
         ProviderType::Gmail => {
             // --- Gmail: REST API over HTTPS ---
-            let encrypted = state
-                .store
-                .get_auth_data(&account_id)?
-                .ok_or_else(|| PebbleError::Internal("No auth data for Gmail account".into()))?;
-            let decrypted = state.crypto.decrypt(&encrypted)?;
-            let token_data: serde_json::Value = serde_json::from_slice(&decrypted)
-                .map_err(|e| PebbleError::Internal(format!("Failed to parse token data: {e}")))?;
-            let access_token = token_data["access_token"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
-            let refresh_token = token_data["refresh_token"]
-                .as_str()
-                .map(|s| s.to_string());
-            let expires_at = token_data["expires_at"].as_i64();
-
-            let provider = Arc::new(GmailProvider::new(access_token));
-
-            // Build token refresher closure
-            let crypto = Arc::clone(&state.crypto);
-            let store_for_refresh = Arc::clone(&state.store);
-            let acct_id_for_refresh = account_id.clone();
-            let refresher: pebble_mail::gmail_sync::TokenRefresher = if let Some(rt) = refresh_token {
-                Box::new(move || {
-                    let rt = rt.clone();
-                    let crypto = Arc::clone(&crypto);
-                    let store = Arc::clone(&store_for_refresh);
-                    let acct_id = acct_id_for_refresh.clone();
-                    Box::pin(async move {
-                        use pebble_oauth::{OAuthConfig, OAuthManager};
-                        let config = OAuthConfig {
-                            client_id: option_env!("GOOGLE_CLIENT_ID")
-                                .unwrap_or("GOOGLE_CLIENT_ID_PLACEHOLDER").into(),
-                            client_secret: None,
-                            auth_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
-                            token_url: "https://oauth2.googleapis.com/token".into(),
-                            scopes: vec!["https://mail.google.com/".into()],
-                            redirect_port: 8756,
-                        };
-                        let manager = OAuthManager::new(config);
-                        let token_pair = manager
-                            .refresh_token(&rt)
-                            .await
-                            .map_err(|e| PebbleError::OAuth(format!("Token refresh failed: {e}")))?;
-
-                        // Persist updated tokens
-                        let tokens_json = serde_json::json!({
-                            "access_token": token_pair.access_token,
-                            "refresh_token": token_pair.refresh_token,
-                            "expires_at": token_pair.expires_at,
-                            "scopes": token_pair.scopes,
-                        });
-                        let config_bytes = serde_json::to_vec(&tokens_json)
-                            .map_err(|e| PebbleError::Internal(format!("Serialize tokens: {e}")))?;
-                        let encrypted = crypto.encrypt(&config_bytes)?;
-                        store.set_auth_data(&acct_id, &encrypted)?;
-
-                        Ok(token_pair.access_token)
-                    })
-                })
-            } else {
-                // No refresh token — just return current token
-                let provider_ref = Arc::clone(&provider);
-                Box::new(move || {
-                    let p = Arc::clone(&provider_ref);
-                    Box::pin(async move {
-                        Ok(p.token())
-                    })
-                })
-            };
+            let tokens = decode_oauth_account_tokens(state, &account_id)?;
+            let expires_at = tokens.expires_at;
+            let provider = Arc::new(GmailProvider::new(tokens.access_token.clone()));
+            let refresher = build_oauth_token_refresher(
+                gmail_oauth_config(),
+                tokens.refresh_token,
+                tokens.access_token,
+                Arc::clone(&state.crypto),
+                Arc::clone(&state.store),
+                account_id.clone(),
+            );
 
             tokio::spawn(async move {
                 let _ = app_for_progress.emit(
@@ -206,79 +151,20 @@ async fn start_sync_inner(
         }
         ProviderType::Outlook => {
             // --- Outlook: Graph API over HTTPS ---
-            let encrypted = state
-                .store
-                .get_auth_data(&account_id)?
-                .ok_or_else(|| PebbleError::Internal("No auth data for Outlook account".into()))?;
-            let decrypted = state.crypto.decrypt(&encrypted)?;
-            let token_data: serde_json::Value = serde_json::from_slice(&decrypted)
-                .map_err(|e| PebbleError::Internal(format!("Failed to parse token data: {e}")))?;
-            let access_token = token_data["access_token"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
-            let refresh_token = token_data["refresh_token"]
-                .as_str()
-                .map(|s| s.to_string());
-            let expires_at = token_data["expires_at"].as_i64();
-
-            let provider = Arc::new(OutlookProvider::new(access_token, account_id.clone()));
-
-            // Build token refresher closure for Outlook
-            let crypto = Arc::clone(&state.crypto);
-            let store_for_refresh = Arc::clone(&state.store);
-            let acct_id_for_refresh = account_id.clone();
-
-            let refresher: pebble_mail::gmail_sync::TokenRefresher = if let Some(rt) = refresh_token {
-                Box::new(move || {
-                    let rt = rt.clone();
-                    let crypto = Arc::clone(&crypto);
-                    let store = Arc::clone(&store_for_refresh);
-                    let acct_id = acct_id_for_refresh.clone();
-                    Box::pin(async move {
-                        use pebble_oauth::{OAuthConfig, OAuthManager};
-                        let config = OAuthConfig {
-                            client_id: std::env::var("MICROSOFT_CLIENT_ID")
-                                .unwrap_or_else(|_| "MICROSOFT_CLIENT_ID_PLACEHOLDER".into()),
-                            client_secret: std::env::var("MICROSOFT_CLIENT_SECRET").ok(),
-                            auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".into(),
-                            token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".into(),
-                            scopes: vec![
-                                "https://graph.microsoft.com/Mail.ReadWrite".into(),
-                                "https://graph.microsoft.com/Mail.Send".into(),
-                                "offline_access".into(),
-                            ],
-                            redirect_port: 8757,
-                        };
-                        let manager = OAuthManager::new(config);
-                        let token_pair = manager
-                            .refresh_token(&rt)
-                            .await
-                            .map_err(|e| PebbleError::OAuth(format!("Outlook token refresh failed: {e}")))?;
-
-                        let tokens_json = serde_json::json!({
-                            "access_token": token_pair.access_token,
-                            "refresh_token": token_pair.refresh_token,
-                            "expires_at": token_pair.expires_at,
-                            "scopes": token_pair.scopes,
-                        });
-                        let config_bytes = serde_json::to_vec(&tokens_json)
-                            .map_err(|e| PebbleError::Internal(format!("Serialize tokens: {e}")))?;
-                        let encrypted = crypto.encrypt(&config_bytes)?;
-                        store.set_auth_data(&acct_id, &encrypted)?;
-
-                        Ok(token_pair.access_token)
-                    })
-                })
-            } else {
-                let provider_ref = Arc::clone(&provider);
-                Box::new(move || {
-                    let p = Arc::clone(&provider_ref);
-                    Box::pin(async move {
-                        Ok(p.token())
-                    })
-                })
-            };
+            let tokens = decode_oauth_account_tokens(state, &account_id)?;
+            let expires_at = tokens.expires_at;
+            let provider = Arc::new(OutlookProvider::new(
+                tokens.access_token.clone(),
+                account_id.clone(),
+            ));
+            let refresher = build_oauth_token_refresher(
+                outlook_oauth_config(),
+                tokens.refresh_token,
+                tokens.access_token,
+                Arc::clone(&state.crypto),
+                Arc::clone(&state.store),
+                account_id.clone(),
+            );
 
             tokio::spawn(async move {
                 let _ = app_for_progress.emit(
@@ -315,21 +201,21 @@ async fn start_sync_inner(
                 serde_json::from_value(value.get("imap").cloned().unwrap_or(value.clone()))
                     .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))?
             } else {
-                let sync_state_json = state
+                // Legacy path: IMAP config used to live inline in sync_state.
+                let sync_state = state
                     .store
-                    .get_account_sync_state(&account_id)?
+                    .get_sync_state(&account_id)?
                     .ok_or_else(|| {
                         PebbleError::Internal(format!("No config found for account {account_id}"))
                     })?;
-                let value: serde_json::Value = serde_json::from_str(&sync_state_json)
-                    .map_err(|e| PebbleError::Internal(format!("Failed to parse sync state: {e}")))?;
-                if let Some(imap_value) = value.get("imap") {
-                    serde_json::from_value(imap_value.clone())
-                        .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))?
-                } else {
-                    serde_json::from_value(value)
-                        .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))?
-                }
+                let imap_value = sync_state.imap.clone().ok_or_else(|| {
+                    PebbleError::Internal(format!(
+                        "No IMAP config found for account {account_id}"
+                    ))
+                })?;
+                serde_json::from_value(imap_value).map_err(|e| {
+                    PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}"))
+                })?
             };
 
             let provider = Arc::new(ImapMailProvider::new(imap_config));
@@ -380,33 +266,42 @@ pub async fn stop_sync(
 }
 
 /// Rebuild the search index from all messages in the store (shared logic).
+///
+/// Iterates messages per account (not per folder) so that a Gmail message
+/// tagged with multiple labels is indexed exactly once, with all of its
+/// folder IDs attached in a single call. This fixes duplicate-index work
+/// and ensures the indexed document's folder list is complete.
 pub fn do_reindex(store: &Store, search: &TantivySearch) -> std::result::Result<u32, PebbleError> {
     search.clear_index()?;
 
     let accounts = store.list_accounts()?;
     let mut count: u32 = 0;
+    let batch_size = 200u32;
 
     for account in &accounts {
-        let folders = store.list_folders(&account.id)?;
-        for folder in &folders {
-            let mut offset = 0u32;
-            let batch_size = 200u32;
-            loop {
-                let messages = store.list_full_messages_by_folder(&folder.id, batch_size, offset)?;
-                if messages.is_empty() {
-                    break;
+        let mut offset = 0u32;
+        loop {
+            let messages = store.list_full_messages_by_account(&account.id, batch_size, offset)?;
+            if messages.is_empty() {
+                break;
+            }
+
+            let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
+            let folder_map = store.get_message_folder_ids_batch(&ids)?;
+
+            for msg in &messages {
+                let empty: Vec<String> = Vec::new();
+                let folder_ids = folder_map.get(&msg.id).unwrap_or(&empty);
+                if let Err(e) = search.index_message(msg, folder_ids) {
+                    warn!("Failed to index message {}: {}", msg.id, e);
+                } else {
+                    count += 1;
                 }
-                for msg in &messages {
-                    if let Err(e) = search.index_message(msg, &[folder.id.clone()]) {
-                        warn!("Failed to index message {}: {}", msg.id, e);
-                    } else {
-                        count += 1;
-                    }
-                }
-                offset += messages.len() as u32;
-                if (messages.len() as u32) < batch_size {
-                    break;
-                }
+            }
+
+            offset += messages.len() as u32;
+            if (messages.len() as u32) < batch_size {
+                break;
             }
         }
     }
