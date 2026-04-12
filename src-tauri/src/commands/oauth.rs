@@ -68,7 +68,7 @@ pub(crate) fn gmail_oauth_config() -> OAuthConfig {
             "https://www.googleapis.com/auth/userinfo.email".to_string(),
             "https://www.googleapis.com/auth/userinfo.profile".to_string(),
         ],
-        redirect_port: 8756,
+        redirect_port: 0,
     }
 }
 
@@ -86,7 +86,7 @@ pub(crate) fn outlook_oauth_config() -> OAuthConfig {
             "https://graph.microsoft.com/User.Read".to_string(),
             "offline_access".to_string(),
         ],
-        redirect_port: 8757,
+        redirect_port: 0,
     }
 }
 
@@ -291,7 +291,15 @@ pub async fn complete_oauth_flow(
     email: String,
     display_name: String,
 ) -> std::result::Result<Account, PebbleError> {
-    let config = config_for_provider(&provider)?;
+    let mut config = config_for_provider(&provider)?;
+
+    // Bind the redirect listener first so the OS assigns an available port.
+    // The actual port is then used in the redirect URI sent to the provider.
+    let bound = pebble_oauth::redirect::bind_redirect_listener(config.redirect_port)
+        .await
+        .map_err(|e| PebbleError::OAuth(format!("Failed to bind redirect listener: {e}")))?;
+    config.redirect_port = bound.port;
+
     let manager = OAuthManager::new(config);
 
     // Start auth flow (generates PKCE challenge)
@@ -304,9 +312,9 @@ pub async fn complete_oauth_flow(
     opener::open(&auth_url)
         .map_err(|e| PebbleError::OAuth(format!("Failed to open browser: {e}")))?;
 
-    // Wait for the redirect callback with the authorization code
-    let redirect = manager
-        .wait_for_redirect()
+    // Wait for the redirect callback with a 5-minute timeout
+    let redirect = bound
+        .wait()
         .await
         .map_err(|e| PebbleError::OAuth(format!("OAuth redirect failed: {e}")))?;
 

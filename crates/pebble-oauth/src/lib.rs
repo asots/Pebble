@@ -1,5 +1,5 @@
 mod pkce;
-mod redirect;
+pub mod redirect;
 mod tokens;
 
 pub use pkce::PkceState;
@@ -12,6 +12,7 @@ use oauth2::{
 };
 
 /// Configuration for an OAuth2 provider.
+#[derive(Debug, Clone)]
 pub struct OAuthConfig {
     pub client_id: String,
     pub client_secret: Option<String>,
@@ -158,6 +159,11 @@ impl OAuthManager {
             .map_err(|e| OAuthError::TokenExchange(format!("Refresh failed: {}", e)))?;
 
         Ok(token_response_to_pair(&token_result, Some(refresh_token)))
+    }
+
+    /// Bind the redirect listener. Returns the bound listener with the actual port.
+    pub async fn bind_redirect_listener(&self) -> Result<redirect::BoundRedirectListener, OAuthError> {
+        redirect::bind_redirect_listener(self.config.redirect_port).await
     }
 
     /// Wait for the OAuth redirect on the configured port and return the
