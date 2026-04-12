@@ -12,6 +12,7 @@ use crate::backoff::SyncBackoff;
 use crate::provider::outlook::OutlookProvider;
 use crate::gmail_sync::TokenRefresher;
 use crate::sync::{StoredMessage, SyncConfig, SyncError, SyncWorkerBase, persist_message_attachments};
+use crate::thread::compute_thread_id;
 
 /// A sync worker for Outlook accounts using the Microsoft Graph API.
 pub struct OutlookSyncWorker {
@@ -168,14 +169,53 @@ impl OutlookSyncWorker {
                             .base.store
                             .get_existing_remote_ids(&self.base.account_id, &remote_ids)
                             .unwrap_or_default();
+
+                        // Collect all referenced message-ID headers from this batch so we can
+                        // load thread mappings in a single query.
+                        let ref_ids: Vec<String> = {
+                            let mut refs = std::collections::HashSet::new();
+                            for msg in &result.messages {
+                                if let Some(irt) = &msg.in_reply_to {
+                                    for id in irt.split_whitespace() {
+                                        refs.insert(id.trim().to_string());
+                                    }
+                                }
+                                if let Some(r) = &msg.references_header {
+                                    for id in r.split_whitespace() {
+                                        refs.insert(id.trim().to_string());
+                                    }
+                                }
+                            }
+                            refs.into_iter().collect()
+                        };
+
+                        // Load thread mappings for this batch. Kept mutable so intra-batch
+                        // replies can find their parent within the same fetch.
+                        let mut thread_mappings = self
+                            .base.store
+                            .get_thread_mappings_for_refs(&self.base.account_id, &ref_ids)
+                            .unwrap_or_default();
+
                         for msg in &result.messages {
                             if existing.contains(&msg.remote_id) {
                                 continue;
                             }
+
+                            // Compute thread_id before inserting.
+                            let mut msg = msg.clone();
+                            let thread_id = compute_thread_id(&msg, &thread_mappings);
+                            msg.thread_id = Some(thread_id);
+
                             let folder_ids = vec![folder.id.clone()];
-                            if let Err(e) = self.base.store.insert_message(msg, &folder_ids) {
+                            if let Err(e) = self.base.store.insert_message(&msg, &folder_ids) {
                                 warn!("Failed to store Outlook message: {e}");
                                 continue;
+                            }
+
+                            // Update in-memory thread mappings so later messages in this batch
+                            // can find this message as a thread parent.
+                            if let (Some(mid), Some(tid)) = (&msg.message_id_header, &msg.thread_id) {
+                                thread_mappings.insert(mid.clone(), tid.clone());
                             }
 
                             // Fetch + persist attachments for messages that advertise them.

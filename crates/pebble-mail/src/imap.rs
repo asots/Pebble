@@ -110,6 +110,8 @@ pub struct SmtpConfig {
     #[serde(skip_serializing)]
     pub password: String,
     pub security: ConnectionSecurity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<ProxyConfig>,
 }
 
 impl std::fmt::Debug for SmtpConfig {
@@ -120,6 +122,7 @@ impl std::fmt::Debug for SmtpConfig {
             .field("username", &self.username)
             .field("password", &"[REDACTED]")
             .field("security", &self.security)
+            .field("proxy", &self.proxy)
             .finish()
     }
 }
@@ -140,6 +143,8 @@ impl<'de> serde::Deserialize<'de> for SmtpConfig {
             security: Option<ConnectionSecurity>,
             #[serde(default)]
             use_tls: Option<bool>,
+            #[serde(default)]
+            proxy: Option<ProxyConfig>,
         }
 
         let raw = Raw::deserialize(deserializer)?;
@@ -154,6 +159,7 @@ impl<'de> serde::Deserialize<'de> for SmtpConfig {
             username: raw.username,
             password: raw.password,
             security,
+            proxy: raw.proxy,
         })
     }
 }

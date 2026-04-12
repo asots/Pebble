@@ -1,30 +1,44 @@
-use crate::imap::ConnectionSecurity;
+use crate::imap::{ConnectionSecurity, ProxyConfig};
 use lettre::message::header::ContentType;
 use lettre::message::{Attachment, Body, Mailbox, MultiPart, SinglePart};
-use lettre::transport::smtp::authentication::Credentials;
-use lettre::{SmtpTransport, Transport};
+use lettre::transport::smtp::authentication::{Credentials, Mechanism};
+use lettre::transport::smtp::client::{AsyncSmtpConnection, AsyncTokioStream, TlsParameters};
+use lettre::transport::smtp::extension::ClientId;
+use lettre::{AsyncSmtpTransport, AsyncTransport};
 use pebble_core::{PebbleError, Result};
+use std::fmt;
+use std::net::SocketAddr;
 use std::path::Path;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct SmtpSender {
     host: String,
     port: u16,
     credentials: Credentials,
     security: ConnectionSecurity,
+    proxy: Option<ProxyConfig>,
 }
 
 impl SmtpSender {
-    pub fn new(host: String, port: u16, username: String, password: String, security: ConnectionSecurity) -> Self {
+    pub fn new(
+        host: String,
+        port: u16,
+        username: String,
+        password: String,
+        security: ConnectionSecurity,
+        proxy: Option<ProxyConfig>,
+    ) -> Self {
         Self {
             host,
             port,
             credentials: Credentials::new(username, password),
             security,
+            proxy,
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn send(
+    pub async fn send(
         &self,
         from: &str,
         to: &[String],
@@ -126,23 +140,32 @@ impl SmtpSender {
                 .map_err(|e| PebbleError::Internal(format!("Failed to build email: {e}")))?
         };
 
+        if let Some(ref proxy) = self.proxy {
+            self.send_via_proxy(&email, proxy).await
+        } else {
+            self.send_direct(&email).await
+        }
+    }
+
+    /// Send without a proxy using the standard lettre AsyncSmtpTransport.
+    async fn send_direct(&self, email: &lettre::Message) -> Result<()> {
         let transport = match self.security {
             ConnectionSecurity::Tls => {
-                SmtpTransport::relay(&self.host)
+                AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(&self.host)
                     .map_err(|e| PebbleError::Network(format!("SMTP relay error: {e}")))?
                     .port(self.port)
                     .credentials(self.credentials.clone())
                     .build()
             }
             ConnectionSecurity::StartTls => {
-                SmtpTransport::starttls_relay(&self.host)
+                AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(&self.host)
                     .map_err(|e| PebbleError::Network(format!("SMTP STARTTLS error: {e}")))?
                     .port(self.port)
                     .credentials(self.credentials.clone())
                     .build()
             }
             ConnectionSecurity::Plain => {
-                SmtpTransport::builder_dangerous(&self.host)
+                AsyncSmtpTransport::<lettre::Tokio1Executor>::builder_dangerous(&self.host)
                     .port(self.port)
                     .credentials(self.credentials.clone())
                     .build()
@@ -150,12 +173,256 @@ impl SmtpSender {
         };
 
         transport
-            .send(&email)
+            .send(email.clone())
+            .await
             .map_err(|e| PebbleError::Network(format!("SMTP send failed: {e}")))?;
 
         Ok(())
     }
+
+    /// Send via a SOCKS5 proxy using a manually managed AsyncSmtpConnection.
+    async fn send_via_proxy(
+        &self,
+        email: &lettre::Message,
+        proxy: &ProxyConfig,
+    ) -> Result<()> {
+        let proxy_addr = format!("{}:{}", proxy.host, proxy.port);
+        let target = format!("{}:{}", self.host, self.port);
+
+        // For TLS (implicit), connect through SOCKS5, then wrap in TLS before the SMTP handshake.
+        // For STARTTLS / Plain, connect through SOCKS5 plain, then upgrade as needed.
+        let hello_name = ClientId::default();
+
+        match self.security {
+            ConnectionSecurity::Tls => {
+                // Connect through SOCKS5 to the SMTP host:port
+                let socks_stream = tokio_socks::tcp::Socks5Stream::connect(
+                    proxy_addr.as_str(),
+                    target.as_str(),
+                )
+                .await
+                .map_err(|e| PebbleError::Network(format!("SOCKS5 connect failed: {e}")))?;
+
+                // We need to upgrade the raw TCP stream to TLS before SMTP handshake.
+                // Use tokio-rustls directly since we already have a connected stream.
+                let rustls_config = build_rustls_client_config();
+                let connector = tokio_rustls::TlsConnector::from(rustls_config);
+                let domain = rustls::pki_types::ServerName::try_from(self.host.clone())
+                    .map_err(|e| PebbleError::Network(format!("Invalid TLS server name: {e}")))?;
+                let tls_stream = connector
+                    .connect(domain, socks_stream.into_inner())
+                    .await
+                    .map_err(|e| PebbleError::Network(format!("TLS handshake failed: {e}")))?;
+
+                let mut conn = AsyncSmtpConnection::connect_with_transport(
+                    Box::new(DebugStream(tls_stream)),
+                    &hello_name,
+                )
+                .await
+                .map_err(|e| PebbleError::Network(format!("SMTP handshake failed: {e}")))?;
+
+                authenticate_and_send(&mut conn, &self.credentials, email).await?;
+            }
+            ConnectionSecurity::StartTls => {
+                let socks_stream = tokio_socks::tcp::Socks5Stream::connect(
+                    proxy_addr.as_str(),
+                    target.as_str(),
+                )
+                .await
+                .map_err(|e| PebbleError::Network(format!("SOCKS5 connect failed: {e}")))?;
+
+                let mut conn = AsyncSmtpConnection::connect_with_transport(
+                    Box::new(Socks5TokioStream(socks_stream)),
+                    &hello_name,
+                )
+                .await
+                .map_err(|e| PebbleError::Network(format!("SMTP handshake failed: {e}")))?;
+
+                if conn.can_starttls() {
+                    let tls_params = TlsParameters::new(self.host.clone())
+                        .map_err(|e| PebbleError::Network(format!("TLS parameters error: {e}")))?;
+                    conn.starttls(tls_params, &hello_name)
+                        .await
+                        .map_err(|e| PebbleError::Network(format!("STARTTLS failed: {e}")))?;
+                }
+
+                authenticate_and_send(&mut conn, &self.credentials, email).await?;
+            }
+            ConnectionSecurity::Plain => {
+                let socks_stream = tokio_socks::tcp::Socks5Stream::connect(
+                    proxy_addr.as_str(),
+                    target.as_str(),
+                )
+                .await
+                .map_err(|e| PebbleError::Network(format!("SOCKS5 connect failed: {e}")))?;
+
+                let mut conn = AsyncSmtpConnection::connect_with_transport(
+                    Box::new(Socks5TokioStream(socks_stream)),
+                    &hello_name,
+                )
+                .await
+                .map_err(|e| PebbleError::Network(format!("SMTP handshake failed: {e}")))?;
+
+                authenticate_and_send(&mut conn, &self.credentials, email).await?;
+            }
+        }
+
+        Ok(())
+    }
 }
+
+/// Authenticate on an open `AsyncSmtpConnection` and send one message.
+async fn authenticate_and_send(
+    conn: &mut AsyncSmtpConnection,
+    credentials: &Credentials,
+    email: &lettre::Message,
+) -> Result<()> {
+    let mechanisms = &[Mechanism::Plain, Mechanism::Login];
+    conn.auth(mechanisms, credentials)
+        .await
+        .map_err(|e| PebbleError::Network(format!("SMTP auth failed: {e}")))?;
+
+    let envelope = email.envelope().clone();
+    let raw = email.formatted();
+    conn.send(&envelope, &raw)
+        .await
+        .map_err(|e| PebbleError::Network(format!("SMTP send failed: {e}")))?;
+
+    let _ = conn.quit().await;
+    Ok(())
+}
+
+/// Build a rustls ClientConfig that trusts the system/webpki roots.
+fn build_rustls_client_config() -> std::sync::Arc<rustls::ClientConfig> {
+    let provider = std::sync::Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("TLS protocol versions")
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    std::sync::Arc::new(config)
+}
+
+// ---------------------------------------------------------------------------
+// Stream wrappers that implement AsyncTokioStream for lettre
+// ---------------------------------------------------------------------------
+
+/// Wraps `tokio_socks::tcp::Socks5Stream<tokio::net::TcpStream>` so it can be
+/// passed to `AsyncSmtpConnection::connect_with_transport`.
+struct Socks5TokioStream(tokio_socks::tcp::Socks5Stream<tokio::net::TcpStream>);
+
+impl fmt::Debug for Socks5TokioStream {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Socks5TokioStream").finish_non_exhaustive()
+    }
+}
+
+impl AsyncTokioStream for Socks5TokioStream {
+    fn peer_addr(&self) -> std::io::Result<SocketAddr> {
+        // Deref to the inner TcpStream via the Deref impl on Socks5Stream.
+        use std::ops::Deref;
+        self.0.deref().peer_addr()
+    }
+}
+
+impl AsyncRead for Socks5TokioStream {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Socks5TokioStream {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
+// Socks5TokioStream wraps a TcpStream (which is Unpin) and the socks stream is also Unpin.
+impl Unpin for Socks5TokioStream {}
+
+// ---------------------------------------------------------------------------
+// DebugStream: generic wrapper that adds Debug + peer_addr for any stream
+// that implements AsyncRead + AsyncWrite + Unpin + Send + Sync but lacks
+// a native peer_addr (e.g. TLS-wrapped streams).
+// ---------------------------------------------------------------------------
+
+struct DebugStream<S>(S);
+
+impl<S: fmt::Debug> fmt::Debug for DebugStream<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<S> AsyncTokioStream for DebugStream<S>
+where
+    S: AsyncRead + AsyncWrite + Send + Sync + Unpin + fmt::Debug + 'static,
+{
+    fn peer_addr(&self) -> std::io::Result<SocketAddr> {
+        // For TLS-over-proxy streams we don't have a meaningful peer_addr; return a dummy.
+        Ok("0.0.0.0:0".parse().unwrap())
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for DebugStream<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for DebugStream<S> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
+impl<S: Unpin> Unpin for DebugStream<S> {}
 
 /// Map common file extensions to MIME content types.
 fn mime_type_from_extension(ext: &str) -> ContentType {

@@ -647,6 +647,42 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_by_account_removes_all_documents() {
+        let engine = TantivySearch::open_in_memory().unwrap();
+
+        // Index two messages for account-1 with unique subject/body terms
+        let msg1 = make_test_message("msg-del-1", "Zephyr quarterly report", "zephyr financials here", "a@example.com");
+        let msg2 = make_test_message("msg-del-2", "Zephyr project update", "zephyr milestone reached", "b@example.com");
+
+        // Index one message for account-2 with different unique terms
+        let mut msg3 = make_test_message("msg-del-3", "Pinnacle strategy memo", "pinnacle roadmap details", "c@example.com");
+        msg3.account_id = "account-2".to_string();
+
+        engine.index_message(&msg1, &["inbox".to_string()]).unwrap();
+        engine.index_message(&msg2, &["inbox".to_string()]).unwrap();
+        engine.index_message(&msg3, &["inbox".to_string()]).unwrap();
+        engine.commit().unwrap();
+
+        // Confirm all three are indexed
+        assert_eq!(engine.doc_count(), 3);
+
+        // Delete account-1's documents
+        engine.delete_by_account("account-1").unwrap();
+
+        // doc_count should drop to 1 (only account-2 message remains)
+        assert_eq!(engine.doc_count(), 1, "expected two documents removed, one remaining");
+
+        // account-1 messages should be gone — search for unique term "zephyr"
+        let hits_a = engine.search("zephyr", 10).unwrap();
+        assert!(hits_a.is_empty(), "expected account-1 messages to be removed from index");
+
+        // account-2 message should still be present — search for unique term "pinnacle"
+        let hits_c = engine.search("pinnacle", 10).unwrap();
+        assert_eq!(hits_c.len(), 1, "expected account-2 message to remain in index");
+        assert_eq!(hits_c[0].message_id, "msg-del-3");
+    }
+
+    #[test]
     fn test_search_finds_cc_recipients() {
         let engine = TantivySearch::open_in_memory().unwrap();
         let mut msg = make_test_message(

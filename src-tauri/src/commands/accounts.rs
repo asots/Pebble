@@ -87,7 +87,7 @@ pub async fn add_account(
             username: request.username.clone(),
             password: request.password.clone(),
             security: request.imap_security,
-            proxy,
+            proxy: proxy.clone(),
         },
         smtp: SmtpConfig {
             host: request.smtp_host,
@@ -95,6 +95,7 @@ pub async fn add_account(
             username: request.username,
             password: request.password,
             security: request.smtp_security,
+            proxy,
         },
     };
 
@@ -167,6 +168,7 @@ pub async fn update_account(
                 username: String::new(),
                 password: String::new(),
                 security: ConnectionSecurity::default(),
+                proxy: None,
             },
         },
     };
@@ -193,6 +195,10 @@ pub async fn update_account(
     if let Some(p) = smtp_port { creds.smtp.port = p; }
     if let Some(ref pw) = password { creds.smtp.password = pw.clone(); }
     if let Some(sec) = smtp_security { creds.smtp.security = sec; }
+    // Mirror IMAP proxy to SMTP — both connections share the same network path.
+    if proxy_host.is_some() || proxy_port.is_some() {
+        creds.smtp.proxy = creds.imap.proxy.clone();
+    }
     if creds.smtp.username.is_empty() {
         creds.smtp.username = email.clone();
     }

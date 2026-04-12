@@ -140,11 +140,12 @@ pub async fn send_email(
         smtp_config.username,
         smtp_config.password,
         smtp_config.security,
+        smtp_config.proxy,
     );
 
     let from_email = account.email.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        sender.send(
+    sender
+        .send(
             &from_email,
             &to,
             &cc,
@@ -155,8 +156,5 @@ pub async fn send_email(
             in_reply_to.as_deref(),
             &attachment_paths,
         )
-    })
-    .await
-    .map_err(|e| PebbleError::Internal(format!("Send task failed: {e}")))?;
-    result
+        .await
 }
