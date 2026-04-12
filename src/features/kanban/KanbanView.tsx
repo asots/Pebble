@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
-import { arrayMove } from "@dnd-kit/sortable";
+import { DndContext, DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import type { KanbanColumnType, Message } from "@/lib/api";
 import { getMessagesBatch } from "@/lib/api";
 import { useKanbanStore } from "@/stores/kanban.store";
@@ -23,6 +23,7 @@ export default function KanbanView() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   useEffect(() => {
@@ -31,25 +32,21 @@ export default function KanbanView() {
 
   // Load message details for all cards (batch)
   useEffect(() => {
-    async function loadMessages() {
-      setMessages((prev) => {
-        const toLoad = cards.filter((c) => !prev.has(c.message_id));
-        if (toLoad.length === 0) return prev;
-        const idsToFetch = toLoad.map((c) => c.message_id);
-        getMessagesBatch(idsToFetch).then((msgs) => {
-          setMessages((current) => {
-            const next = new Map(current);
-            for (const msg of msgs) {
-              next.set(msg.id, msg);
-            }
-            return next;
-          });
-        });
-        return prev;
+    const toLoad = cards.filter((c) => !messages.has(c.message_id));
+    if (toLoad.length === 0) return;
+    let cancelled = false;
+    getMessagesBatch(toLoad.map((c) => c.message_id)).then((msgs) => {
+      if (cancelled) return;
+      setMessages((current) => {
+        const next = new Map(current);
+        for (const msg of msgs) {
+          next.set(msg.id, msg);
+        }
+        return next;
       });
-    }
-    loadMessages();
-  }, [cards]);
+    });
+    return () => { cancelled = true; };
+  }, [cards]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleOpenMessage(messageId: string) {
     useMailStore.getState().setSelectedMessage(messageId);
