@@ -88,6 +88,8 @@ fn filter_css_properties(style: &str) -> String {
         "display",
         "overflow",
         "visibility",
+        "float",
+        "clear",
         "list-style",
         "list-style-type",
         "table-layout",

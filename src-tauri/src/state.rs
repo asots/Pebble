@@ -1,5 +1,4 @@
 use pebble_crypto::CryptoService;
-use pebble_oauth::redirect::BoundRedirectListener;
 use pebble_search::TantivySearch;
 use pebble_store::Store;
 use std::collections::HashMap;
@@ -23,7 +22,6 @@ pub struct AppState {
     pub snooze_stop_tx: std::sync::mpsc::Sender<()>,
     pub attachments_dir: PathBuf,
     pub notifications_enabled: Arc<AtomicBool>,
-    pub pending_oauth: Mutex<Option<BoundRedirectListener>>,
 }
 
 impl AppState {
@@ -42,7 +40,6 @@ impl AppState {
             snooze_stop_tx,
             attachments_dir,
             notifications_enabled: Arc::new(AtomicBool::new(true)),
-            pending_oauth: Mutex::new(None),
         }
     }
 }

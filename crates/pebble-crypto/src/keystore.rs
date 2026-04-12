@@ -16,6 +16,7 @@ impl KeyStore {
 
         match entry.get_secret() {
             Ok(secret) => {
+                let secret = Zeroizing::new(secret);
                 if secret.len() != 32 {
                     return Err(PebbleError::Auth(format!(
                         "Invalid DEK length: expected 32, got {}",
