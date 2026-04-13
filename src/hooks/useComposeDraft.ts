@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useUIStore } from "@/stores/ui.store";
 import { useMailStore } from "@/stores/mail.store";
-import { hasComposeDraft } from "@/features/compose/compose-draft";
 import { saveDraft } from "@/lib/api";
 
 import type { EditorMode } from "./useComposeEditor";
@@ -61,9 +60,13 @@ export function useComposeDraft({
   // fields don't immediately trigger the "unsaved draft" guard.
   const initialSnapshot = useRef<{
     to: string[]; cc: string[]; bcc: string[]; subject: string;
+    rawSource: string; richTextHtml: string;
   } | null>(null);
   if (!initialSnapshot.current) {
-    initialSnapshot.current = { to: [...to], cc: [...cc], bcc: [...bcc], subject };
+    initialSnapshot.current = {
+      to: [...to], cc: [...cc], bcc: [...bcc], subject,
+      rawSource, richTextHtml,
+    };
   }
 
   const arraysEqual = useCallback(
@@ -84,8 +87,8 @@ export function useComposeDraft({
       !arraysEqual(cc, init.cc) ||
       !arraysEqual(bcc, init.bcc) ||
       subject !== init.subject ||
-      rawSource.trim().length > 0 ||
-      hasComposeDraft({ to: [], cc: [], bcc: [], subject: "", rawSource, richTextHtml });
+      rawSource !== init.rawSource ||
+      richTextHtml !== init.richTextHtml;
     useUIStore.getState().setComposeDirty(userChanged);
   }, [arraysEqual, bcc, cc, rawSource, richTextHtml, subject, to]);
 
