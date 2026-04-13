@@ -148,34 +148,72 @@ pub async fn download_attachment(
             .map_err(|e| PebbleError::Internal(format!("Failed to read file metadata: {e}")))?
             .len();
 
-        let mut dst_file = std::fs::File::create(&save_to)
-            .map_err(|e| PebbleError::Internal(format!("Failed to create destination: {e}")))?;
+        // Write to a temporary file in the same directory, then rename atomically
+        let save_path = std::path::Path::new(&save_to);
+        let parent = save_path.parent().ok_or_else(|| {
+            PebbleError::Internal("Invalid save directory".to_string())
+        })?;
+        let temp_name = format!(".pebble-download-{}.tmp", pebble_core::new_id());
+        let temp_path = parent.join(&temp_name);
+
+        let mut dst_file = std::fs::File::create(&temp_path)
+            .map_err(|e| PebbleError::Internal(format!("Failed to create temp file: {e}")))?;
 
         let mut buf = [0u8; 8192];
         let mut bytes_copied: u64 = 0;
 
-        loop {
-            let n = src_file
-                .read(&mut buf)
-                .map_err(|e| PebbleError::Internal(format!("Read error: {e}")))?;
-            if n == 0 {
-                break;
-            }
-            dst_file
-                .write_all(&buf[..n])
-                .map_err(|e| PebbleError::Internal(format!("Write error: {e}")))?;
-            bytes_copied += n as u64;
+        let copy_result: std::result::Result<(), PebbleError> = (|| {
+            loop {
+                let n = src_file
+                    .read(&mut buf)
+                    .map_err(|e| PebbleError::Internal(format!("Read error: {e}")))?;
+                if n == 0 {
+                    break;
+                }
+                dst_file
+                    .write_all(&buf[..n])
+                    .map_err(|e| PebbleError::Internal(format!("Write error: {e}")))?;
+                bytes_copied += n as u64;
 
-            // Emit progress event
-            let _ = app.emit(
-                "attachment:download-progress",
-                serde_json::json!({
-                    "attachment_id": att_id,
-                    "bytes_copied": bytes_copied,
-                    "total_bytes": total_bytes,
-                }),
-            );
+                let _ = app.emit(
+                    "attachment:download-progress",
+                    serde_json::json!({
+                        "attachment_id": att_id,
+                        "bytes_copied": bytes_copied,
+                        "total_bytes": total_bytes,
+                    }),
+                );
+            }
+            Ok(())
+        })();
+
+        if let Err(e) = copy_result {
+            // Clean up temp file on failure
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(e);
         }
+
+        // Ensure all data is flushed to disk before rename
+        dst_file.sync_all()
+            .map_err(|e| PebbleError::Internal(format!("Failed to flush file: {e}")))?;
+        drop(dst_file);
+
+        // Re-validate that the final target is not a symlink before renaming
+        if save_path.exists() && save_path.symlink_metadata()
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(PebbleError::Validation(
+                "Target path is a symlink — refusing to overwrite".to_string(),
+            ));
+        }
+
+        std::fs::rename(&temp_path, &save_to)
+            .map_err(|e| {
+                let _ = std::fs::remove_file(&temp_path);
+                PebbleError::Internal(format!("Failed to rename temp file to target: {e}"))
+            })?;
 
         Ok::<(), PebbleError>(())
     })
