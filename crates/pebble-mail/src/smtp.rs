@@ -238,13 +238,16 @@ impl SmtpSender {
                 .await
                 .map_err(|e| PebbleError::Network(format!("SMTP handshake failed: {e}")))?;
 
-                if conn.can_starttls() {
-                    let tls_params = TlsParameters::new(self.host.clone())
-                        .map_err(|e| PebbleError::Network(format!("TLS parameters error: {e}")))?;
-                    conn.starttls(tls_params, &hello_name)
-                        .await
-                        .map_err(|e| PebbleError::Network(format!("STARTTLS failed: {e}")))?;
+                if !conn.can_starttls() {
+                    return Err(PebbleError::Network(
+                        "STARTTLS required but server does not support it — refusing to send in plaintext".to_string(),
+                    ));
                 }
+                let tls_params = TlsParameters::new(self.host.clone())
+                    .map_err(|e| PebbleError::Network(format!("TLS parameters error: {e}")))?;
+                conn.starttls(tls_params, &hello_name)
+                    .await
+                    .map_err(|e| PebbleError::Network(format!("STARTTLS failed: {e}")))?;
 
                 authenticate_and_send(&mut conn, &self.credentials, email).await?;
             }
