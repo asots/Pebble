@@ -213,12 +213,19 @@ pub async fn batch_delete(
         }
     }
 
-    // Local bulk soft-delete — only messages that were successfully deleted remotely
-    state.store.bulk_soft_delete(&deleted_ids)?;
-    let success_count = deleted_ids.len() as u32;
+    // If no remote deletes succeeded at all, fall back to local delete (true offline mode)
+    let ids_to_delete = if deleted_ids.is_empty() {
+        message_ids.as_slice()
+    } else {
+        deleted_ids.as_slice()
+    };
+
+    // Local bulk soft-delete
+    state.store.bulk_soft_delete(ids_to_delete)?;
+    let success_count = ids_to_delete.len() as u32;
 
     // Update search index — remove deleted messages
-    for id in &deleted_ids {
+    for id in ids_to_delete {
         if let Err(e) = state.search.remove_message(id) {
             warn!("Failed to remove deleted message {id} from search index: {e}");
         }
