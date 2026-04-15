@@ -63,6 +63,20 @@ impl Store {
         })
     }
 
+    pub fn get_snoozed_message(&self, message_id: &str) -> Result<Option<SnoozedMessage>> {
+        self.with_read(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT message_id, snoozed_at, unsnoozed_at, return_to
+                 FROM snoozed_messages WHERE message_id = ?1",
+            )?;
+            let mut rows = stmt.query_map(params![message_id], row_to_snoozed)?;
+            match rows.next() {
+                Some(r) => Ok(Some(r?)),
+                None => Ok(None),
+            }
+        })
+    }
+
     pub fn unsnooze_message(&self, message_id: &str) -> Result<()> {
         self.with_write(|conn| {
             conn.execute(
@@ -195,5 +209,27 @@ mod tests {
 
         let all = store.list_snoozed_messages().unwrap();
         assert_eq!(all.len(), 0);
+    }
+
+    #[test]
+    fn get_snoozed_returns_record_when_present_and_none_when_missing() {
+        let (store, msg_id) = setup_store_with_message();
+        // Missing -> None
+        assert!(store.get_snoozed_message(&msg_id).unwrap().is_none());
+
+        let now = pebble_core::now_timestamp();
+        let snooze = SnoozedMessage {
+            message_id: msg_id.clone(),
+            snoozed_at: now,
+            unsnoozed_at: now + 3600,
+            return_to: "archive".to_string(),
+        };
+        store.snooze_message(&snooze).unwrap();
+
+        let got = store.get_snoozed_message(&msg_id).unwrap();
+        let got = got.expect("snoozed record should exist after snooze_message");
+        assert_eq!(got.message_id, msg_id);
+        assert_eq!(got.return_to, "archive");
+        assert_eq!(got.unsnoozed_at, now + 3600);
     }
 }

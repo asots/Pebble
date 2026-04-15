@@ -1,6 +1,7 @@
+use crate::events;
 use crate::state::AppState;
 use pebble_core::{PebbleError, SnoozedMessage, now_timestamp};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 pub async fn snooze_message(
@@ -20,10 +21,24 @@ pub async fn snooze_message(
 
 #[tauri::command]
 pub async fn unsnooze_message(
+    app: AppHandle,
     state: State<'_, AppState>,
     message_id: String,
 ) -> std::result::Result<(), PebbleError> {
-    state.store.unsnooze_message(&message_id)
+    // Look up return_to before deleting so we can emit it in the event.
+    let return_to = state
+        .store
+        .get_snoozed_message(&message_id)?
+        .map(|s| s.return_to);
+    state.store.unsnooze_message(&message_id)?;
+    let _ = app.emit(
+        events::MAIL_UNSNOOZED,
+        serde_json::json!({
+            "message_id": message_id,
+            "return_to": return_to,
+        }),
+    );
+    Ok(())
 }
 
 #[tauri::command]
