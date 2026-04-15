@@ -396,38 +396,109 @@ fn find_tag_start(html: &str, from: usize, tag: &str) -> Option<usize> {
 }
 
 /// Find the end position (exclusive) of an img tag starting at `start`.
+///
+/// Walks the tag body respecting quoted attribute values so that a `>`
+/// appearing inside `alt="foo>bar"` does not prematurely close the tag.
 fn find_img_tag_end(html: &str, start: usize) -> Option<usize> {
-    let rest = &html[start..];
-    // img tags can be self-closed or end with >
-    rest.find('>').map(|gt_pos| start + gt_pos + 1)
+    let bytes = html.as_bytes();
+    let mut i = start;
+    let mut in_quote: Option<u8> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match (in_quote, b) {
+            (Some(q), c) if c == q => in_quote = None,
+            (None, b'"') | (None, b'\'') => in_quote = Some(b),
+            (None, b'>') => return Some(i + 1),
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Extract the value of an attribute from an HTML tag string.
+///
+/// Walks attributes left-to-right, matching only whole attribute names (so
+/// `data-src` is not confused with `src`) and honoring quoted/unquoted values.
 fn extract_attr_value(tag: &str, attr: &str) -> Option<String> {
-    let tag_lower = tag.to_ascii_lowercase();
-    let search = format!("{}=", attr);
-
-    let attr_pos = tag_lower.find(&search)?;
-    let value_start = attr_pos + search.len();
-
     let bytes = tag.as_bytes();
-    if value_start >= bytes.len() {
-        return None;
-    }
+    let attr_lower = attr.to_ascii_lowercase();
+    // Skip past `<tagname` — find first whitespace after `<`.
+    let mut i = match tag.find(|c: char| c.is_ascii_whitespace()) {
+        Some(idx) => idx,
+        None => return None,
+    };
 
-    if bytes[value_start] == b'"' || bytes[value_start] == b'\'' {
-        let quote = bytes[value_start];
-        let start = value_start + 1;
-        let end = tag[start..].find(|c: char| c as u8 == quote).map(|p| p + start)?;
-        Some(tag[start..end].to_string())
-    } else {
-        let start = value_start;
-        let end = tag[start..]
-            .find([' ', '>', '/'])
-            .map(|p| p + start)
-            .unwrap_or(tag.len());
-        Some(tag[start..end].to_string())
+    while i < bytes.len() {
+        // Skip whitespace between attributes.
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] == b'>' || bytes[i] == b'/' {
+            return None;
+        }
+        // Read attribute name.
+        let name_start = i;
+        while i < bytes.len()
+            && !bytes[i].is_ascii_whitespace()
+            && bytes[i] != b'='
+            && bytes[i] != b'>'
+            && bytes[i] != b'/'
+        {
+            i += 1;
+        }
+        let name = tag[name_start..i].to_ascii_lowercase();
+
+        // Skip whitespace before '='.
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        // Attribute without value (boolean attribute).
+        if i >= bytes.len() || bytes[i] != b'=' {
+            if name == attr_lower {
+                return Some(String::new());
+            }
+            continue;
+        }
+        // Consume '=' and following whitespace.
+        i += 1;
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            return None;
+        }
+
+        // Read value (quoted or unquoted).
+        let value = if bytes[i] == b'"' || bytes[i] == b'\'' {
+            let quote = bytes[i];
+            i += 1;
+            let v_start = i;
+            while i < bytes.len() && bytes[i] != quote {
+                i += 1;
+            }
+            let v = tag[v_start..i].to_string();
+            if i < bytes.len() {
+                i += 1; // consume closing quote
+            }
+            v
+        } else {
+            let v_start = i;
+            while i < bytes.len()
+                && !bytes[i].is_ascii_whitespace()
+                && bytes[i] != b'>'
+                && bytes[i] != b'/'
+            {
+                i += 1;
+            }
+            tag[v_start..i].to_string()
+        };
+
+        if name == attr_lower {
+            return Some(value);
+        }
     }
+    None
 }
 
 /// Extract the domain from a URL, stripping protocol and path.
@@ -597,5 +668,29 @@ mod tests {
         let result = guard.render_safe_html(html, &PrivacyMode::Strict);
         assert!(!result.html.contains("position"));
         assert!(!result.html.contains("z-index"));
+    }
+
+    #[test]
+    fn img_tag_end_respects_quoted_gt() {
+        // The alt attribute contains a '>' inside quotes. The naive parser
+        // that looks for the first '>' would close the tag early, leaving
+        // a stray src=".../pixel.gif" fragment in the output.
+        let guard = PrivacyGuard::new();
+        let html = r#"<p>Before</p><img alt="hi>there" src="https://tracking.mailchimp.com/open.gif" width="100" height="50"><p>After</p>"#;
+        let result = guard.render_safe_html(html, &PrivacyMode::Strict);
+        // Tracker must be detected and the src must not survive in output.
+        assert!(!result.html.contains("mailchimp.com"), "tracker src leaked: {}", result.html);
+        assert_eq!(result.trackers_blocked.len(), 1);
+    }
+
+    #[test]
+    fn extract_attr_does_not_match_substring() {
+        // `data-src` should NOT be treated as `src`. A substring-matching
+        // parser would pull the data-src value and miss the real src.
+        let guard = PrivacyGuard::new();
+        let html = r#"<img data-src="https://example.com/local.jpg" src="https://tracking.mailchimp.com/open.gif" width="100" height="50">"#;
+        let result = guard.render_safe_html(html, &PrivacyMode::Strict);
+        assert!(!result.html.contains("mailchimp.com"), "tracker leaked: {}", result.html);
+        assert_eq!(result.trackers_blocked.len(), 1, "expected real src to be detected");
     }
 }
