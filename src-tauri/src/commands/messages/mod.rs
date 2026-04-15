@@ -9,7 +9,9 @@ pub mod rendering;
 use crate::commands::oauth::ensure_account_oauth_tokens;
 use crate::state::AppState;
 use pebble_core::{FolderRole, PebbleError};
+use pebble_crypto::CryptoService;
 use pebble_mail::{GmailProvider, ImapConfig, ImapProvider, OutlookProvider};
+use pebble_store::Store;
 
 pub(super) async fn connect_gmail(
     state: &AppState,
@@ -92,17 +94,23 @@ pub(super) fn refresh_search_documents(
     Ok(())
 }
 
-/// Extract the IMAP config for an account (without connecting).
-pub(super) fn get_imap_config(state: &AppState, account_id: &str) -> std::result::Result<ImapConfig, PebbleError> {
-    if let Some(encrypted) = state.store.get_auth_data(account_id)? {
-        let decrypted = state.crypto.decrypt(&encrypted)?;
+/// Extract the IMAP config for an account (without connecting). Takes
+/// `&Store`/`&CryptoService` rather than `&AppState` so it's callable from
+/// inside `spawn_blocking` closures that only hold cloned `Arc`s.
+pub(super) fn load_imap_config(
+    store: &Store,
+    crypto: &CryptoService,
+    account_id: &str,
+) -> std::result::Result<ImapConfig, PebbleError> {
+    if let Some(encrypted) = store.get_auth_data(account_id)? {
+        let decrypted = crypto.decrypt(&encrypted)?;
         let value: serde_json::Value = serde_json::from_slice(&decrypted)
             .map_err(|e| PebbleError::Internal(format!("Failed to parse config: {e}")))?;
         serde_json::from_value(value.get("imap").cloned().unwrap_or(value.clone()))
             .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))
     } else {
         // Legacy path: IMAP config used to live inline in sync_state.
-        let sync_state = state.store.get_sync_state(account_id)?
+        let sync_state = store.get_sync_state(account_id)?
             .ok_or_else(|| PebbleError::Internal(format!("No config for account {account_id}")))?;
         let imap_value = sync_state.imap.ok_or_else(|| {
             PebbleError::Internal(format!("No IMAP config for account {account_id}"))
@@ -114,7 +122,7 @@ pub(super) fn get_imap_config(state: &AppState, account_id: &str) -> std::result
 
 /// Resolve an IMAP connection from the account's auth data.
 pub(super) async fn connect_imap(state: &AppState, account_id: &str) -> std::result::Result<ImapProvider, PebbleError> {
-    let imap_config = get_imap_config(state, account_id)?;
+    let imap_config = load_imap_config(&state.store, &state.crypto, account_id)?;
     let provider = ImapProvider::new(imap_config);
     provider.connect().await?;
     Ok(provider)

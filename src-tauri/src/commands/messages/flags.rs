@@ -5,7 +5,7 @@ use pebble_mail::{ImapConfig, ImapProvider};
 use tauri::State;
 use tracing::warn;
 
-use super::{connect_gmail, connect_outlook};
+use super::{connect_gmail, connect_outlook, load_imap_config};
 
 /// Data resolved from the local DB that the async writeback branches need.
 enum WritebackInfo {
@@ -65,26 +65,11 @@ pub async fn update_message_flags(
                     .find_map(|fid| folders.iter().find(|f| &f.id == fid))
                     .cloned();
 
-                let imap_config: Option<ImapConfig> = if let Some(encrypted) = store.get_auth_data(&msg.account_id)? {
-                    let decrypted = crypto.decrypt(&encrypted)?;
-                    let value: serde_json::Value = serde_json::from_slice(&decrypted)
-                        .map_err(|e| PebbleError::Internal(format!("Failed to parse config: {e}")))?;
-                    Some(
-                        serde_json::from_value(value.get("imap").cloned().unwrap_or(value.clone()))
-                            .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))?,
-                    )
-                } else {
-                    // Legacy path: IMAP config used to live inline in sync_state.
-                    let sync_state = store.get_sync_state(&msg.account_id)?
-                        .ok_or_else(|| PebbleError::Internal(format!("No config for account {}", msg.account_id)))?;
-                    match sync_state.imap {
-                        Some(v) => Some(
-                            serde_json::from_value(v)
-                                .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))?,
-                        ),
-                        None => None,
-                    }
-                };
+                // Missing config here means the account has no IMAP writeback
+                // target — degrade gracefully to `None` rather than failing the
+                // whole flag update, which is local-only-valid in that case.
+                let imap_config: Option<ImapConfig> =
+                    load_imap_config(&store, &crypto, &msg.account_id).ok();
 
                 match (folder, imap_config) {
                     (Some(f), Some(cfg)) => Ok(WritebackInfo::Imap {

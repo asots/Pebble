@@ -123,7 +123,7 @@ pub fn run() {
 
                 if needs_rebuild {
                     tracing::info!("Starting background search index rebuild...");
-                    match commands::sync_cmd::do_reindex(&store_for_reindex, &search_for_reindex) {
+                    match commands::indexing::do_reindex(&store_for_reindex, &search_for_reindex) {
                         Ok(n) => {
                             tracing::info!("Background reindex complete: {n} messages indexed");
                             let _ = app_for_reindex.emit("search:reindex-complete", n);

@@ -9,6 +9,7 @@ pub mod compose;
 pub mod contacts;
 pub mod folders;
 pub mod health;
+pub mod indexing;
 pub mod kanban;
 pub mod labels;
 pub mod messages;
