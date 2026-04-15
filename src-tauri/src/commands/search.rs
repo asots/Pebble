@@ -10,5 +10,8 @@ pub async fn search_messages(
     limit: Option<usize>,
 ) -> std::result::Result<Vec<SearchHit>, PebbleError> {
     let limit = limit.unwrap_or(50);
-    state.search.search(&query, limit)
+    let search = state.search.clone();
+    tokio::task::spawn_blocking(move || search.search(&query, limit))
+        .await
+        .map_err(|e| PebbleError::Internal(format!("Task join error: {e}")))?
 }

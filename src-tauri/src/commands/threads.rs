@@ -8,7 +8,10 @@ pub async fn list_thread_messages(
     state: State<'_, AppState>,
     thread_id: String,
 ) -> std::result::Result<Vec<Message>, PebbleError> {
-    state.store.list_messages_by_thread(&thread_id)
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.list_messages_by_thread(&thread_id))
+        .await
+        .map_err(|e| PebbleError::Internal(format!("Task join error: {e}")))?
 }
 
 #[tauri::command]
@@ -18,5 +21,8 @@ pub async fn list_threads(
     limit: u32,
     offset: u32,
 ) -> std::result::Result<Vec<ThreadSummary>, PebbleError> {
-    state.store.list_threads_by_folder(&folder_id, limit, offset)
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.list_threads_by_folder(&folder_id, limit, offset))
+        .await
+        .map_err(|e| PebbleError::Internal(format!("Task join error: {e}")))?
 }

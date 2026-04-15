@@ -24,15 +24,21 @@ pub async fn advanced_search(
     query: AdvancedSearchQuery,
     limit: Option<usize>,
 ) -> std::result::Result<Vec<SearchHit>, PebbleError> {
-    state.search.advanced_search(AdvancedSearchParams {
-        text: query.text.as_deref(),
-        from: query.from.as_deref(),
-        to: query.to.as_deref(),
-        subject: query.subject.as_deref(),
-        date_from: query.date_from,
-        date_to: query.date_to,
-        has_attachment: query.has_attachment,
-        folder_id: query.folder_id.as_deref(),
-        limit: limit.unwrap_or(50),
+    let search = state.search.clone();
+    let limit = limit.unwrap_or(50);
+    tokio::task::spawn_blocking(move || {
+        search.advanced_search(AdvancedSearchParams {
+            text: query.text.as_deref(),
+            from: query.from.as_deref(),
+            to: query.to.as_deref(),
+            subject: query.subject.as_deref(),
+            date_from: query.date_from,
+            date_to: query.date_to,
+            has_attachment: query.has_attachment,
+            folder_id: query.folder_id.as_deref(),
+            limit,
+        })
     })
+    .await
+    .map_err(|e| PebbleError::Internal(format!("Task join error: {e}")))?
 }
