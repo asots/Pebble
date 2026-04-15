@@ -4,8 +4,8 @@ import { useMailStore } from "@/stores/mail.store";
 import { useKanbanStore } from "@/stores/kanban.store";
 import { useToastStore } from "@/stores/toast.store";
 import { updateMessageFlags, archiveMessage } from "@/lib/api";
-import type { MessageSummary } from "@/lib/api";
 import { queryClient } from "@/lib/query-client";
+import { patchMessagesCache, findCachedMessage } from "@/hooks/queries";
 
 const NOTIFICATIONS_KEY = "pebble-notifications-enabled";
 
@@ -79,12 +79,7 @@ export function buildCommands(t: (key: string, defaultValue: string) => string):
       execute: async () => {
         const { selectedMessageId } = useMailStore.getState();
         if (!selectedMessageId) return;
-        const entries = queryClient.getQueriesData<MessageSummary[]>({ queryKey: ["messages"] });
-        let msg: MessageSummary | undefined;
-        for (const [, data] of entries) {
-          msg = data?.find((m) => m.id === selectedMessageId);
-          if (msg) break;
-        }
+        const msg = findCachedMessage(queryClient, (m) => m.id === selectedMessageId);
         if (msg) {
           await updateMessageFlags(selectedMessageId, undefined, !msg.is_starred);
           queryClient.invalidateQueries({ queryKey: ["messages"] });
@@ -106,7 +101,7 @@ export function buildCommands(t: (key: string, defaultValue: string) => string):
       execute: async () => {
         const id = useMailStore.getState().selectedMessageId;
         if (!id) return;
-        queryClient.setQueriesData<MessageSummary[]>({ queryKey: ["messages"] }, (old) => old?.filter((m) => m.id !== id));
+        patchMessagesCache(queryClient, (page) => page.filter((m) => m.id !== id));
         useMailStore.getState().setSelectedMessage(null);
         try {
           const result = await archiveMessage(id);

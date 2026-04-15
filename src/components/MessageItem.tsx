@@ -6,6 +6,7 @@ import type { Label, MessageSummary } from "@/lib/api";
 import { updateMessageFlags, archiveMessage, moveToFolder } from "@/lib/api";
 import { useKanbanStore } from "@/stores/kanban.store";
 import { useToastStore } from "@/stores/toast.store";
+import { patchMessagesCache } from "@/hooks/queries";
 
 interface Props {
   message: MessageSummary;
@@ -196,7 +197,7 @@ function MessageItem({ message, labels = [], isSelected, onClick, onToggleStar, 
           <button
             onClick={(e) => {
               e.stopPropagation();
-              queryClient.setQueriesData<MessageSummary[]>({ queryKey: ["messages"] }, (old) => old?.filter((m) => m.id !== message.id));
+              patchMessagesCache(queryClient, (page) => page.filter((m) => m.id !== message.id));
               archiveMessage(message.id)
                 .then((result) => {
                   if (result === "skipped") return;
@@ -212,6 +213,7 @@ function MessageItem({ message, labels = [], isSelected, onClick, onToggleStar, 
                   useToastStore.getState().addToast({ message: t("messageActions.archiveFailed", "Failed to archive"), type: "error" });
                 });
             }}
+            aria-label={t("messageActions.archive")}
             title={t("messageActions.archive")}
             style={{
               padding: "4px",
@@ -230,7 +232,7 @@ function MessageItem({ message, labels = [], isSelected, onClick, onToggleStar, 
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                queryClient.setQueriesData<MessageSummary[]>({ queryKey: ["messages"] }, (old) => old?.filter((m) => m.id !== message.id));
+                patchMessagesCache(queryClient, (page) => page.filter((m) => m.id !== message.id));
                 moveToFolder(message.id, spamFolderId)
                   .then(() => {
                     queryClient.invalidateQueries({ queryKey: ["messages"] });
@@ -242,6 +244,7 @@ function MessageItem({ message, labels = [], isSelected, onClick, onToggleStar, 
                     useToastStore.getState().addToast({ message: t("messageActions.spamFailed", "Failed to mark as spam"), type: "error" });
                   });
               }}
+              aria-label={t("messageActions.reportSpam", "Report spam")}
               title={t("messageActions.reportSpam", "Report spam")}
               style={{
                 padding: "4px",
@@ -268,6 +271,7 @@ function MessageItem({ message, labels = [], isSelected, onClick, onToggleStar, 
                   useToastStore.getState().addToast({ message: t("messageActions.kanbanFailed", "Failed to add to kanban"), type: "error" });
                 });
             }}
+            aria-label={t("messageActions.addToKanban")}
             title={t("messageActions.addToKanban")}
             style={{
               padding: "4px",
@@ -290,6 +294,8 @@ function MessageItem({ message, labels = [], isSelected, onClick, onToggleStar, 
                 .catch(console.error);
               if (onToggleStar) onToggleStar(message.id, !message.is_starred);
             }}
+            aria-label={message.is_starred ? t("messageActions.unstar") : t("messageActions.star")}
+            aria-pressed={message.is_starred}
             title={message.is_starred ? t("messageActions.unstar") : t("messageActions.star")}
             style={{
               padding: "4px",

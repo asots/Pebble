@@ -1,11 +1,21 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateMessageFlags } from "@/lib/api";
 import type { Message } from "@/lib/api";
+import {
+  patchMessagesCache,
+  snapshotMessagesCache,
+  restoreMessagesCache,
+} from "@/hooks/queries";
 
 interface UpdateFlagsParams {
   messageId: string;
   isRead?: boolean;
   isStarred?: boolean;
+}
+
+interface MutationContext {
+  previousMessage: Message | null | undefined;
+  previousLists: ReturnType<typeof snapshotMessagesCache>;
 }
 
 export function useUpdateFlagsMutation() {
@@ -14,20 +24,19 @@ export function useUpdateFlagsMutation() {
   return useMutation({
     mutationFn: (params: UpdateFlagsParams) =>
       updateMessageFlags(params.messageId, params.isRead, params.isStarred),
-    onMutate: async (params) => {
-      // Cancel outgoing refetches
+    onMutate: async (params): Promise<MutationContext> => {
       await queryClient.cancelQueries({ queryKey: ["messages"] });
       await queryClient.cancelQueries({
         queryKey: ["message", params.messageId],
       });
 
-      // Snapshot previous message
       const previousMessage = queryClient.getQueryData<Message | null>([
         "message",
         params.messageId,
       ]);
 
-      // Optimistically update the single message cache
+      const previousLists = snapshotMessagesCache(queryClient);
+
       if (previousMessage) {
         queryClient.setQueryData<Message | null>(
           ["message", params.messageId],
@@ -41,19 +50,30 @@ export function useUpdateFlagsMutation() {
         );
       }
 
-      return { previousMessage };
+      patchMessagesCache(queryClient, (page) =>
+        page.map((m) =>
+          m.id === params.messageId
+            ? {
+                ...m,
+                ...(params.isRead !== undefined && { is_read: params.isRead }),
+                ...(params.isStarred !== undefined && { is_starred: params.isStarred }),
+              }
+            : m,
+        ),
+      );
+
+      return { previousMessage, previousLists };
     },
     onError: (_err, params, context) => {
-      // Rollback on error
       if (context?.previousMessage) {
         queryClient.setQueryData(
           ["message", params.messageId],
           context.previousMessage,
         );
       }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["messages"] });
+      if (context?.previousLists) {
+        restoreMessagesCache(queryClient, context.previousLists);
+      }
     },
   });
 }

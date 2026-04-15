@@ -1,5 +1,5 @@
 import { useMailStore } from "@/stores/mail.store";
-import { useAccountsQuery, useMessagesQuery, useThreadsQuery, useFoldersQuery } from "@/hooks/queries";
+import { useAccountsQuery, useMessagesQuery, useThreadsQuery, useFoldersQuery, patchMessagesCache } from "@/hooks/queries";
 import { useUIStore } from "@/stores/ui.store";
 import { useToastStore } from "@/stores/toast.store";
 import MessageList from "@/components/MessageList";
@@ -15,9 +15,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { List, MessageSquare, Mail, Trash2, Inbox, CheckSquare } from "lucide-react";
 import { MessageListSkeleton } from "@/components/Skeleton";
 import { emptyTrash } from "@/lib/api";
-import type { MessageSummary, ThreadSummary } from "@/lib/api";
+import type { ThreadSummary } from "@/lib/api";
 
-const EMPTY_MESSAGES: MessageSummary[] = [];
 const EMPTY_THREADS: ThreadSummary[] = [];
 
 export default function InboxView() {
@@ -47,22 +46,25 @@ export default function InboxView() {
     return ids.length > 1 ? ids : undefined;
   })();
 
-  const [messageLimit, setMessageLimit] = useState(50);
-  const { data: messages = EMPTY_MESSAGES, isLoading: loadingMessages } = useMessagesQuery(
+  const {
+    data: messages,
+    isLoading: loadingMessages,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useMessagesQuery(
     threadView ? null : activeFolderId,
-    messageLimit, 0,
     threadView ? undefined : siblingFolderIds,
   );
   const { data: threads = EMPTY_THREADS, isLoading: loadingThreads } = useThreadsQuery(
     threadView ? activeFolderId : null,
   );
-  const handleLoadMore = useCallback(() => setMessageLimit((prev) => prev + 50), []);
+  const handleLoadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   const handleToggleStar = useCallback((messageId: string, newStarred: boolean) => {
-    queryClient.setQueriesData<MessageSummary[]>(
-      { queryKey: ["messages"] },
-      (old) => old?.map((m) =>
-        m.id === messageId ? { ...m, is_starred: newStarred } : m,
-      ),
+    patchMessagesCache(queryClient, (page) =>
+      page.map((m) => (m.id === messageId ? { ...m, is_starred: newStarred } : m)),
     );
   }, [queryClient]);
 
@@ -140,6 +142,7 @@ export default function InboxView() {
         {!threadView && (
           <button
             onClick={() => useMailStore.getState().toggleBatchMode()}
+            aria-label={t("batch.toggle", "Batch select")}
             style={{
               background: "none", border: "none", cursor: "pointer", padding: "6px 10px",
               color: "var(--color-text-secondary)", display: "flex", alignItems: "center",
@@ -152,6 +155,7 @@ export default function InboxView() {
         )}
         <button
           onClick={toggleThreadView}
+          aria-label={threadView ? t("inbox.messageView") : t("inbox.threadView")}
           style={{
             background: "none", border: "none", cursor: "pointer", padding: "6px 10px",
             color: "var(--color-text-secondary)", display: "flex", alignItems: "center",

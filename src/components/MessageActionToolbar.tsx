@@ -6,7 +6,12 @@ import { useTranslation } from "react-i18next";
 import { useUpdateFlagsMutation } from "@/hooks/mutations/useUpdateFlagsMutation";
 import { useUIStore } from "@/stores/ui.store";
 import { archiveMessage, deleteMessage, restoreMessage } from "@/lib/api";
-import type { Message, MessageSummary } from "@/lib/api";
+import type { Message } from "@/lib/api";
+import {
+  patchMessagesCache,
+  snapshotMessagesCache,
+  restoreMessagesCache,
+} from "@/hooks/queries";
 import { useEffect, useState } from "react";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -87,8 +92,8 @@ export default function MessageActionToolbar({
         ? t("messageActions.unarchive", "Unarchive")
         : t("messageActions.archive"),
       action: async () => {
-        queryClient.setQueriesData<MessageSummary[]>({ queryKey: ["messages"] }, (old) => old?.filter((m) => m.id !== message.id));
-        onBack();
+        const previousLists = snapshotMessagesCache(queryClient);
+        patchMessagesCache(queryClient, (page) => page.filter((m) => m.id !== message.id));
         try {
           const result = await archiveMessage(message.id);
           if (result === "skipped") return;
@@ -105,8 +110,9 @@ export default function MessageActionToolbar({
               type: "success",
             });
           }
+          onBack();
         } catch {
-          queryClient.invalidateQueries({ queryKey: ["messages"] });
+          restoreMessagesCache(queryClient, previousLists);
           useToastStore.getState().addToast({
             message: folderRole === "archive"
               ? t("messageActions.unarchiveFailed", "Failed to unarchive")
@@ -120,8 +126,8 @@ export default function MessageActionToolbar({
       icon: RotateCcw,
       label: t("messageActions.restore", "Restore"),
       action: async () => {
-        queryClient.setQueriesData<MessageSummary[]>({ queryKey: ["messages"] }, (old) => old?.filter((m) => m.id !== message.id));
-        onBack();
+        const previousLists = snapshotMessagesCache(queryClient);
+        patchMessagesCache(queryClient, (page) => page.filter((m) => m.id !== message.id));
         try {
           await restoreMessage(message.id);
           queryClient.invalidateQueries({ queryKey: ["messages"] });
@@ -129,8 +135,9 @@ export default function MessageActionToolbar({
             message: t("messageActions.restoreSuccess", "Message restored to inbox"),
             type: "success",
           });
+          onBack();
         } catch {
-          queryClient.invalidateQueries({ queryKey: ["messages"] });
+          restoreMessagesCache(queryClient, previousLists);
           useToastStore.getState().addToast({
             message: t("messageActions.restoreFailed", "Failed to restore message"),
             type: "error",
@@ -251,8 +258,8 @@ export default function MessageActionToolbar({
           onCancel={() => setShowDeleteConfirm(false)}
           onConfirm={async () => {
             setShowDeleteConfirm(false);
-            queryClient.setQueriesData<MessageSummary[]>({ queryKey: ["messages"] }, (old) => old?.filter((m) => m.id !== message.id));
-            onBack();
+            const previousLists = snapshotMessagesCache(queryClient);
+            patchMessagesCache(queryClient, (page) => page.filter((m) => m.id !== message.id));
             try {
               await deleteMessage(message.id);
               queryClient.invalidateQueries({ queryKey: ["messages"] });
@@ -261,8 +268,9 @@ export default function MessageActionToolbar({
                 message: t("messageActions.deleteSuccess", "Message deleted"),
                 type: "success",
               });
+              onBack();
             } catch {
-              queryClient.invalidateQueries({ queryKey: ["messages"] });
+              restoreMessagesCache(queryClient, previousLists);
               useToastStore.getState().addToast({
                 message: t("messageActions.deleteFailed", "Failed to delete message"),
                 type: "error",

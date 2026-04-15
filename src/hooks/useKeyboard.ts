@@ -8,6 +8,7 @@ import { useToastStore } from "@/stores/toast.store";
 import { updateMessageFlags, archiveMessage, getMessage } from "@/lib/api";
 import { queryClient } from "@/lib/query-client";
 import type { MessageSummary, ThreadSummary } from "@/lib/api";
+import { patchMessagesCache, readFirstCachedMessages } from "@/hooks/queries";
 import i18n from "@/lib/i18n";
 
 function eventToKeyString(e: KeyboardEvent): string {
@@ -26,11 +27,7 @@ export { eventToKeyString };
 
 /** Read the first matching cached messages from React Query */
 function getCachedMessages(): MessageSummary[] {
-  const entries = queryClient.getQueriesData<MessageSummary[]>({ queryKey: ["messages"] });
-  for (const [, data] of entries) {
-    if (data && data.length > 0) return data;
-  }
-  return [];
+  return readFirstCachedMessages(queryClient);
 }
 
 /** Read the first matching cached threads from React Query */
@@ -126,9 +123,8 @@ export function useKeyboard() {
             if (msg) {
               const newStarred = !msg.is_starred;
               // Optimistic update in React Query cache
-              queryClient.setQueriesData<MessageSummary[]>(
-                { queryKey: ["messages"] },
-                (old) => old?.map((m) =>
+              patchMessagesCache(queryClient, (page) =>
+                page.map((m) =>
                   m.id === selectedMessageId ? { ...m, is_starred: newStarred } : m,
                 ),
               );
@@ -136,9 +132,8 @@ export function useKeyboard() {
                 .then(() => queryClient.invalidateQueries({ queryKey: ["messages"] }))
                 .catch(() => {
                   // Rollback on error
-                  queryClient.setQueriesData<MessageSummary[]>(
-                    { queryKey: ["messages"] },
-                    (old) => old?.map((m) =>
+                  patchMessagesCache(queryClient, (page) =>
+                    page.map((m) =>
                       m.id === selectedMessageId ? { ...m, is_starred: !newStarred } : m,
                     ),
                   );
@@ -151,9 +146,8 @@ export function useKeyboard() {
           const { selectedMessageId } = useMailStore.getState();
           if (selectedMessageId) {
             // Optimistic removal from React Query cache
-            queryClient.setQueriesData<MessageSummary[]>(
-              { queryKey: ["messages"] },
-              (old) => old?.filter((m) => m.id !== selectedMessageId),
+            patchMessagesCache(queryClient, (page) =>
+              page.filter((m) => m.id !== selectedMessageId),
             );
             useMailStore.getState().setSelectedMessage(null);
             archiveMessage(selectedMessageId)
