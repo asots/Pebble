@@ -380,18 +380,23 @@ async fn index_new_messages(
     const COMMIT_BATCH_SIZE: u32 = 20;
     const COMMIT_IDLE_SECS: u64 = 2;
 
-    // Load rules once at the start of the sync session
-    let engine = match store.list_rules() {
-        Ok(rules) if !rules.is_empty() => {
-            info!("Rule engine loaded with {} rules", rules.len());
-            Some(RuleEngine::new(&rules))
-        }
-        Ok(_) => None,
-        Err(e) => {
-            warn!("Failed to load rules: {e}");
-            None
+    // Rules are reloaded at each batch boundary so edits made mid-sync take
+    // effect within ~20 messages (or ~2s idle) rather than waiting for the
+    // next full sync session.
+    let load_engine = |store: &Arc<Store>| -> Option<RuleEngine> {
+        match store.list_rules() {
+            Ok(rules) if !rules.is_empty() => Some(RuleEngine::new(&rules)),
+            Ok(_) => None,
+            Err(e) => {
+                warn!("Failed to load rules: {e}");
+                None
+            }
         }
     };
+    let mut engine = load_engine(store);
+    if let Some(ref e) = engine {
+        info!("Rule engine loaded with {} rules", e.rule_count());
+    }
 
     let mut pending = 0u32;
     loop {
@@ -410,6 +415,8 @@ async fn index_new_messages(
                     }
                     pending = 0;
                 }
+                // Idle — take the opportunity to refresh rules.
+                engine = load_engine(store);
                 continue;
             }
         };
@@ -481,6 +488,8 @@ async fn index_new_messages(
                 error!("Failed to commit search index: {}", e);
             }
             pending = 0;
+            // Pick up any rule edits made mid-sync.
+            engine = load_engine(store);
         }
     }
 

@@ -37,6 +37,10 @@ impl RuleEngine {
         }
     }
 
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
+
     pub fn evaluate(&self, message: &Message) -> Vec<RuleAction> {
         let mut actions = Vec::new();
         for (conditions, rule_actions) in &self.rules {
