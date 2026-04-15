@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useMailStore } from "@/stores/mail.store";
+import { useToastStore } from "@/stores/toast.store";
 import { listTrustedSenders, removeTrustedSender } from "@/lib/api";
 import type { TrustedSender } from "@/lib/api";
 import { Trash2 } from "lucide-react";
@@ -17,9 +18,17 @@ export default function PrivacyTab() {
 
   useEffect(() => {
     if (activeAccountId) {
-      listTrustedSenders(activeAccountId).then(setTrustedSenders).catch((err) => console.warn("Failed to load trusted senders", err));
+      listTrustedSenders(activeAccountId)
+        .then(setTrustedSenders)
+        .catch((err) => {
+          console.warn("Failed to load trusted senders", err);
+          useToastStore.getState().addToast({
+            message: t("privacy.loadTrustedFailed", "Failed to load trusted senders"),
+            type: "error",
+          });
+        });
     }
-  }, [activeAccountId]);
+  }, [activeAccountId, t]);
 
   function handlePrivacyModeChange(mode: "strict" | "relaxed" | "off") {
     setPrivacyMode(mode);
@@ -28,8 +37,16 @@ export default function PrivacyTab() {
 
   async function handleRemoveTrust(email: string) {
     if (!activeAccountId) return;
-    await removeTrustedSender(activeAccountId, email);
-    setTrustedSenders((prev) => prev.filter((s) => s.email !== email));
+    try {
+      await removeTrustedSender(activeAccountId, email);
+      setTrustedSenders((prev) => prev.filter((s) => s.email !== email));
+    } catch (err) {
+      console.warn("Failed to remove trusted sender", err);
+      useToastStore.getState().addToast({
+        message: t("privacy.removeTrustFailed", "Failed to remove trusted sender"),
+        type: "error",
+      });
+    }
   }
 
   return (

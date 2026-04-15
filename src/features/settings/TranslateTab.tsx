@@ -5,6 +5,7 @@ import {
   saveTranslateConfig,
   testTranslateConnection,
 } from "../../lib/api";
+import { useToastStore } from "@/stores/toast.store";
 
 type ProviderType = "deeplx" | "deepl" | "generic_api" | "llm";
 
@@ -159,6 +160,10 @@ export default function TranslateTab() {
       const errMsg = err instanceof Error ? err.message : String(err);
       setStatusMsg(t("translate.saveFailed", { error: errMsg }));
       setStatusType("error");
+      useToastStore.getState().addToast({
+        message: t("translate.saveFailed", { error: errMsg }),
+        type: "error",
+      });
     } finally {
       setSaving(false);
     }
@@ -176,6 +181,10 @@ export default function TranslateTab() {
       const errMsg = err instanceof Error ? err.message : String(err);
       setStatusMsg(t("translate.testFailed", { error: errMsg }));
       setStatusType("error");
+      useToastStore.getState().addToast({
+        message: t("translate.testFailed", { error: errMsg }),
+        type: "error",
+      });
     } finally {
       setTesting(false);
     }
