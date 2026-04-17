@@ -229,69 +229,73 @@ fn build_sanitizer(_mode: &PrivacyMode) -> Builder<'static> {
 }
 
 /// Pre-process img tags before ammonia to handle tracking pixels and privacy modes.
+///
+/// Uses lol_html (a streaming HTML rewriter) to parse `<img>` elements
+/// properly, avoiding the pitfalls of hand-rolled string scanning (attribute
+/// quoting, whitespace variations, encoding tricks).
 fn preprocess_images(
     html: &str,
     mode: &PrivacyMode,
     trackers_blocked: &mut Vec<TrackerInfo>,
     images_blocked: &mut u32,
 ) -> String {
-    let mut result = String::with_capacity(html.len());
-    let mut pos = 0;
+    use std::cell::RefCell;
 
-    while pos < html.len() {
-        // Find the next <img tag
-        if let Some(tag_start) = find_tag_start(html, pos, "img") {
-            // Copy everything before this img tag
-            result.push_str(&html[pos..tag_start]);
+    // Wrap mutable references in RefCell so they can be captured by the
+    // closure passed to lol_html (which requires 'static-compatible FnMut).
+    let trackers = RefCell::new(trackers_blocked);
+    let blocked = RefCell::new(images_blocked);
+    let mode = mode.clone();
 
-            // Find the end of this img tag
-            if let Some(tag_end) = find_img_tag_end(html, tag_start) {
-                let tag_str = &html[tag_start..tag_end];
+    let result = lol_html::rewrite_str(
+        html,
+        lol_html::RewriteStrSettings {
+            element_content_handlers: vec![lol_html::element!("img", |el| {
+                let src = el.get_attribute("src");
+                let width = el.get_attribute("width");
+                let height = el.get_attribute("height");
 
-                let src = extract_attr_value(tag_str, "src");
-                let width = extract_attr_value(tag_str, "width");
-                let height = extract_attr_value(tag_str, "height");
-
-                let should_replace = process_img_tag(
+                let action = process_img_tag(
                     src.as_deref(),
                     width.as_deref(),
                     height.as_deref(),
-                    mode,
-                    trackers_blocked,
-                    images_blocked,
+                    &mode,
+                    &mut trackers.borrow_mut(),
+                    &mut blocked.borrow_mut(),
                 );
 
-                match should_replace {
+                match action {
                     ImgAction::Remove => {
-                        // Skip the tag entirely (replace with nothing)
+                        el.remove();
                     }
                     ImgAction::BlockedPlaceholder => {
                         let src_val = src.as_deref().unwrap_or("");
                         let escaped = html_escape(src_val);
-                        result.push_str(&format!(
-                            r#"<div class="blocked-image" data-src="{}">Image blocked for privacy</div>"#,
-                            escaped
-                        ));
+                        el.replace(
+                            &format!(
+                                r#"<div class="blocked-image" data-src="{}">Image blocked for privacy</div>"#,
+                                escaped
+                            ),
+                            lol_html::html_content::ContentType::Html,
+                        );
                     }
-                    ImgAction::Keep => {
-                        result.push_str(tag_str);
-                    }
+                    ImgAction::Keep => { /* leave element untouched */ }
                 }
 
-                pos = tag_end;
-            } else {
-                // Malformed tag — copy the '<' and advance
-                result.push('<');
-                pos = tag_start + 1;
-            }
-        } else {
-            // No more img tags
-            result.push_str(&html[pos..]);
-            break;
+                Ok(())
+            })],
+            ..lol_html::RewriteStrSettings::default()
+        },
+    );
+
+    match result {
+        Ok(rewritten) => rewritten,
+        Err(_) => {
+            // If the rewriter fails on malformed input, fall through to
+            // ammonia which will strip the problematic markup anyway.
+            html.to_string()
         }
     }
-
-    result
 }
 
 enum ImgAction {
@@ -355,151 +359,6 @@ fn process_img_tag(
     ImgAction::Keep
 }
 
-/// Find the byte position where the next `<tag` starts, searching from `from`.
-fn find_tag_start(html: &str, from: usize, tag: &str) -> Option<usize> {
-    let search_area = &html[from..];
-    let mut offset = 0;
-
-    while offset < search_area.len() {
-        if let Some(lt_pos) = search_area[offset..].find('<') {
-            let abs = offset + lt_pos;
-            let after_lt = abs + 1;
-
-            // Skip closing tags
-            if search_area[after_lt..].starts_with('/') {
-                offset = abs + 1;
-                continue;
-            }
-
-            let rest = &search_area[after_lt..];
-            let rest_lower = rest.to_ascii_lowercase();
-            if rest_lower.starts_with(tag) {
-                let tag_len = tag.len();
-                // Verify it is the full tag name (not a prefix of another tag)
-                if let Some(c) = rest.chars().nth(tag_len) {
-                    if c == ' ' || c == '>' || c == '/' || c == '\t' || c == '\n' || c == '\r' {
-                        return Some(from + abs);
-                    }
-                } else {
-                    // End of string after tag name — still valid
-                    return Some(from + abs);
-                }
-            }
-
-            offset = abs + 1;
-        } else {
-            break;
-        }
-    }
-
-    None
-}
-
-/// Find the end position (exclusive) of an img tag starting at `start`.
-///
-/// Walks the tag body respecting quoted attribute values so that a `>`
-/// appearing inside `alt="foo>bar"` does not prematurely close the tag.
-fn find_img_tag_end(html: &str, start: usize) -> Option<usize> {
-    let bytes = html.as_bytes();
-    let mut i = start;
-    let mut in_quote: Option<u8> = None;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match (in_quote, b) {
-            (Some(q), c) if c == q => in_quote = None,
-            (None, b'"') | (None, b'\'') => in_quote = Some(b),
-            (None, b'>') => return Some(i + 1),
-            _ => {}
-        }
-        i += 1;
-    }
-    None
-}
-
-/// Extract the value of an attribute from an HTML tag string.
-///
-/// Walks attributes left-to-right, matching only whole attribute names (so
-/// `data-src` is not confused with `src`) and honoring quoted/unquoted values.
-fn extract_attr_value(tag: &str, attr: &str) -> Option<String> {
-    let bytes = tag.as_bytes();
-    let attr_lower = attr.to_ascii_lowercase();
-    // Skip past `<tagname` — find first whitespace after `<`.
-    let mut i = match tag.find(|c: char| c.is_ascii_whitespace()) {
-        Some(idx) => idx,
-        None => return None,
-    };
-
-    while i < bytes.len() {
-        // Skip whitespace between attributes.
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        if i >= bytes.len() || bytes[i] == b'>' || bytes[i] == b'/' {
-            return None;
-        }
-        // Read attribute name.
-        let name_start = i;
-        while i < bytes.len()
-            && !bytes[i].is_ascii_whitespace()
-            && bytes[i] != b'='
-            && bytes[i] != b'>'
-            && bytes[i] != b'/'
-        {
-            i += 1;
-        }
-        let name = tag[name_start..i].to_ascii_lowercase();
-
-        // Skip whitespace before '='.
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        // Attribute without value (boolean attribute).
-        if i >= bytes.len() || bytes[i] != b'=' {
-            if name == attr_lower {
-                return Some(String::new());
-            }
-            continue;
-        }
-        // Consume '=' and following whitespace.
-        i += 1;
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        if i >= bytes.len() {
-            return None;
-        }
-
-        // Read value (quoted or unquoted).
-        let value = if bytes[i] == b'"' || bytes[i] == b'\'' {
-            let quote = bytes[i];
-            i += 1;
-            let v_start = i;
-            while i < bytes.len() && bytes[i] != quote {
-                i += 1;
-            }
-            let v = tag[v_start..i].to_string();
-            if i < bytes.len() {
-                i += 1; // consume closing quote
-            }
-            v
-        } else {
-            let v_start = i;
-            while i < bytes.len()
-                && !bytes[i].is_ascii_whitespace()
-                && bytes[i] != b'>'
-                && bytes[i] != b'/'
-            {
-                i += 1;
-            }
-            tag[v_start..i].to_string()
-        };
-
-        if name == attr_lower {
-            return Some(value);
-        }
-    }
-    None
-}
 
 /// Extract the domain from a URL, stripping protocol and path.
 fn extract_domain_from_url(url: &str) -> Option<String> {

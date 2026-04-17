@@ -7,3 +7,4 @@ edition = "2021"
 pebble-core = { path = "../pebble-core" }
 thiserror = { workspace = true }
 ammonia = { workspace = true }
+lol_html = { workspace = true }
