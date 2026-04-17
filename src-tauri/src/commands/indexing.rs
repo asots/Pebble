@@ -213,6 +213,9 @@ fn apply_rule_action(
             store.add_label(message_id, label)?;
             info!("Rule: added label '{}' to message {}", label, message_id);
         }
+        // TODO: MoveToFolder only updates the local DB; it does not issue an
+        // IMAP MOVE or Gmail label change, so the remote mailbox stays unchanged.
+        // A future provider-aware action layer should propagate the move upstream.
         RuleAction::MoveToFolder(folder_name) => {
             if let Some(target_folder) = store.find_folder_by_name(account_id, folder_name)? {
                 store.move_message_to_folder(message_id, &target_folder.id)?;

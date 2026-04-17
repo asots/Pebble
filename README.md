@@ -25,10 +25,11 @@
 - Local-first storage — SQLite database, search index, attachments all on your device
 - AES-256 encrypted OAuth tokens and credentials with per-device key
 - No telemetry. Outbound network traffic only for features you enable: mail sync with your provider, translation (sends the selected text to the service you configure), and WebDAV settings backup (runs against the server you provide)
+- Data retention: deleted messages are soft-deleted and purged after 30 days; use "Empty Trash" to permanently remove them immediately
 - Open source under AGPL-3.0
 
 **Email Management**
-- Gmail, Outlook, and IMAP support — all accounts in one place
+- Gmail, Outlook (experimental), and IMAP support — all accounts in one place
 - Kanban board — drag emails across Todo, Waiting, and Done columns
 - Smart search powered by Tantivy full-text search engine
 - Snooze & Star — resurface emails later, mark what matters

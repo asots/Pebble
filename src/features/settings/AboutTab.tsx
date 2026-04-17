@@ -94,7 +94,7 @@ export default function AboutTab() {
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", lineHeight: 1.7, margin: "0 0 8px" }}>
           {t(
             "about.features",
-            "Supports Gmail, Outlook, and IMAP accounts. Includes Kanban board, full-text search, snooze, rules engine, built-in translation, and WebDAV settings backup.",
+            "Supports Gmail, Outlook (experimental), and IMAP accounts. Includes Kanban board, full-text search, snooze, rules engine, built-in translation, and WebDAV settings backup.",
           )}
         </p>
         <p style={{ fontSize: "12px", color: "var(--color-text-tertiary, var(--color-text-secondary))", lineHeight: 1.5, margin: 0 }}>
