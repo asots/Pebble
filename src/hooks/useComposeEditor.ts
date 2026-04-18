@@ -5,6 +5,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown as MarkdownExtension } from "tiptap-markdown";
 import TurndownService from "turndown";
 import { getSignature } from "@/lib/signatures";
+import { sanitizeHtml } from "@/lib/sanitizeHtml";
 import type { Message } from "@/lib/ipc-types";
 import type { TFunction } from "i18next";
 
@@ -25,6 +26,84 @@ interface UseComposeEditorArgs {
   } | null;
 }
 
+interface BuildComposeEditorContentArgs {
+  composeMode: string | null;
+  composeReplyTo: Message | null;
+  isReply: boolean;
+  signatureHtml: string;
+  t: TFunction;
+}
+
+function escapeHtml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function parseBodyHtml(html: string) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return doc.body.innerHTML;
+}
+
+function decodeHtmlEntities(value: string) {
+  const doc = new DOMParser().parseFromString(value, "text/html");
+  return doc.body.textContent ?? "";
+}
+
+function startsWithEncodedHtmlTag(value: string) {
+  return /^\s*(?:&lt;|&#0*60;|&#x0*3c;)\s*\/?[a-z][\w:-]*(?:\s|\/?(?:&gt;|&#0*62;|&#x0*3e;))/i.test(value);
+}
+
+function looksLikeHtml(value: string) {
+  return /<\s*\/?[a-z][\w:-]*(?:\s|\/?>)/i.test(value);
+}
+
+export function extractComposeBodyHtml(html: string) {
+  try {
+    const source = html.trim();
+    let body = parseBodyHtml(source);
+    const decoded = decodeHtmlEntities(body).trim();
+
+    if (startsWithEncodedHtmlTag(source) && decoded !== body.trim() && looksLikeHtml(decoded)) {
+      body = parseBodyHtml(decoded);
+    }
+
+    return sanitizeHtml(body);
+  } catch {
+    return `<p>${escapeHtml(html)}</p>`;
+  }
+}
+
+export function buildComposeEditorContent({
+  composeMode,
+  composeReplyTo,
+  isReply,
+  signatureHtml,
+  t,
+}: BuildComposeEditorContentArgs) {
+  try {
+    if (isReply && composeReplyTo) {
+      const sender = escapeHtml(composeReplyTo.from_name || composeReplyTo.from_address || "");
+      const dateStr = escapeHtml(new Date((composeReplyTo.date || 0) * 1000).toLocaleString());
+      const body = composeReplyTo.body_html_raw
+        ? extractComposeBodyHtml(composeReplyTo.body_html_raw)
+        : `<p>${escapeHtml(composeReplyTo.body_text || "")}</p>`;
+      const attribution = t("compose.quoteAttribution", { date: dateStr, sender });
+      return `${signatureHtml}<br/><br/><blockquote><p>${escapeHtml(attribution)}</p>${body}</blockquote>`;
+    }
+    if (composeMode === "forward" && composeReplyTo) {
+      const sender = escapeHtml(composeReplyTo.from_name || composeReplyTo.from_address || "");
+      const fwdSubject = escapeHtml(composeReplyTo.subject || "");
+      const body = composeReplyTo.body_html_raw
+        ? extractComposeBodyHtml(composeReplyTo.body_html_raw)
+        : `<p>${escapeHtml(composeReplyTo.body_text || "")}</p>`;
+      return `${signatureHtml}<br/><br/><p>${escapeHtml(t("compose.forwardedHeader"))}</p><p>${escapeHtml(t("compose.forwardedFrom", { sender }))}</p><p>${escapeHtml(t("compose.forwardedSubject", { subject: fwdSubject }))}</p>${body}`;
+    }
+    return signatureHtml;
+  } catch (err) {
+    console.error("[ComposeView] Failed to build editor content:", err);
+    return "";
+  }
+}
+
 export function useComposeEditor({
   fromAccountId,
   composeMode,
@@ -43,47 +122,11 @@ export function useComposeEditor({
   const signatureHtml = useMemo(() => {
     const sig = getSignature(fromAccountId);
     if (!sig) return "";
-    const esc = (s: string) =>
-      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
-    return `<br/><br/><div style="color:var(--color-text-secondary);font-size:13px">--<br/>${esc(sig)}</div>`;
+    return `<br/><br/><div style="color:var(--color-text-secondary);font-size:13px">--<br/>${escapeHtml(sig).replace(/\n/g, "<br/>")}</div>`;
   }, [fromAccountId]);
 
   const editorContent = useMemo(() => {
-    try {
-      const esc = (s: string) =>
-        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-      const extractBody = (html: string) => {
-        try {
-          const doc = new DOMParser().parseFromString(html, "text/html");
-          return doc.body.innerHTML;
-        } catch {
-          return `<p>${esc(html)}</p>`;
-        }
-      };
-
-      if (isReply && composeReplyTo) {
-        const sender = esc(composeReplyTo.from_name || composeReplyTo.from_address || "");
-        const dateStr = esc(new Date((composeReplyTo.date || 0) * 1000).toLocaleString());
-        const body = composeReplyTo.body_html_raw
-          ? extractBody(composeReplyTo.body_html_raw)
-          : `<p>${esc(composeReplyTo.body_text || "")}</p>`;
-        const attribution = t("compose.quoteAttribution", { date: dateStr, sender });
-        return `${signatureHtml}<br/><br/><blockquote><p>${esc(attribution)}</p>${body}</blockquote>`;
-      }
-      if (composeMode === "forward" && composeReplyTo) {
-        const sender = esc(composeReplyTo.from_name || composeReplyTo.from_address || "");
-        const fwdSubject = esc(composeReplyTo.subject || "");
-        const body = composeReplyTo.body_html_raw
-          ? extractBody(composeReplyTo.body_html_raw)
-          : `<p>${esc(composeReplyTo.body_text || "")}</p>`;
-        return `${signatureHtml}<br/><br/><p>${esc(t("compose.forwardedHeader"))}</p><p>${esc(t("compose.forwardedFrom", { sender }))}</p><p>${esc(t("compose.forwardedSubject", { subject: fwdSubject }))}</p>${body}`;
-      }
-      return signatureHtml;
-    } catch (err) {
-      console.error("[ComposeView] Failed to build editor content:", err);
-      return "";
-    }
+    return buildComposeEditorContent({ composeMode, composeReplyTo, isReply, signatureHtml, t });
   }, [composeMode, composeReplyTo, isReply, t, signatureHtml]);
 
   const editor = useEditor({
