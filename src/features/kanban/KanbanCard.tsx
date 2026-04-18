@@ -5,12 +5,13 @@ import type { Message } from "@/lib/api";
 
 interface Props {
   id: string;
+  note?: string;
   message: Message | null;
   onRemove: (id: string) => void;
   onOpen: (messageId: string) => void;
 }
 
-export default function KanbanCard({ id, message, onRemove, onOpen }: Props) {
+export default function KanbanCard({ id, note, message, onRemove, onOpen }: Props) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
@@ -99,6 +100,23 @@ export default function KanbanCard({ id, message, onRemove, onOpen }: Props) {
           ×
         </button>
       </div>
+      {note && (
+        <div
+          style={{
+            marginTop: "8px",
+            padding: "6px 8px",
+            borderRadius: "6px",
+            backgroundColor: "var(--color-bg-secondary, rgba(0,0,0,0.04))",
+            color: "var(--color-text-secondary)",
+            fontSize: "12px",
+            lineHeight: 1.4,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {note}
+        </div>
+      )}
     </div>
   );
 }

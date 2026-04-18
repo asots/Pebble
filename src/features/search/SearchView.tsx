@@ -31,7 +31,7 @@ export default function SearchView() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
-  const initialQueryRef = useRef<string | null>(null);
+  const storeSearchQuery = useUIStore((s) => s.searchQuery);
 
   const trimmed = query.trim();
   const filtersActive = hasActiveFilters(filters);
@@ -70,23 +70,14 @@ export default function SearchView() {
     setSelectedId(null);
   }, [query, filters]);
 
-  // Pick up query from store on every mount (works across navigations)
+  // Pick up context queries from other views and from this view while mounted.
   useEffect(() => {
-    const storeQuery = useUIStore.getState().searchQuery;
-    if (storeQuery) {
-      setQuery(storeQuery);
-      useUIStore.getState().setSearchQuery("");
-      initialQueryRef.current = storeQuery;
-    }
-  }, []);
-
-  // Search after mount if we had a store query
-  useEffect(() => {
-    if (initialQueryRef.current) {
-      initialQueryRef.current = null;
-      doSearch();
-    }
-  }, [doSearch]);
+    if (!storeSearchQuery) return;
+    setQuery(storeSearchQuery);
+    setSelectedId(null);
+    setHasSearched(true);
+    useUIStore.getState().setSearchQuery("");
+  }, [storeSearchQuery]);
 
   // Auto-search when filters change
   useEffect(() => {

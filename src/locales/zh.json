@@ -362,7 +362,10 @@
     "clickToOpen": "点击打开邮件",
     "cardAriaLabel": "{{subject}}，来自 {{sender}}。按 Enter 打开，空格拖动。",
     "removedFromBoard": "卡片已从看板移除",
-    "undoRemove": "撤销"
+    "undoRemove": "撤销",
+    "note": "看板备注",
+    "contextNoteAdded": "已把选中文本加入看板备注",
+    "contextNoteFailed": "加入看板备注失败"
   },
   "accountSetup": {
     "title": "添加邮箱账户",
@@ -497,7 +500,8 @@
     "actionType": "动作类型",
     "actionValue": "动作值",
     "kanbanColumn": "看板列",
-    "conditionValueRequired": "条件值不能为空。"
+    "conditionValueRequired": "条件值不能为空。",
+    "contextRuleName": "选中文本规则"
   },
   "translate": {
     "title": "翻译",
@@ -524,6 +528,20 @@
     "testFailed": "测试失败: {{error}}",
     "privacyNotice": "翻译功能将把选中的文本发送给第三方翻译服务，您的邮件内容将离开本设备。",
     "acceptAndContinue": "我已了解，继续"
+  },
+  "selection": {
+    "actions": "选中文本操作",
+    "copySelectedText": "复制选中文本",
+    "copiedSelectedText": "已复制选中文本",
+    "moreActions": "更多选中文本操作",
+    "translate": "翻译",
+    "translateSelectedText": "翻译选中文本",
+    "search": "搜索",
+    "searchSelectedText": "搜索选中文本",
+    "createRule": "创建规则",
+    "createRuleFromSelection": "用选中文本创建规则",
+    "addToKanbanNoteLabel": "加入看板备注",
+    "addToKanbanNote": "加入看板备注"
   },
   "titleBar": {
     "minimize": "最小化",

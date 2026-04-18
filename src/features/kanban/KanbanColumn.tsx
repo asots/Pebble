@@ -8,12 +8,13 @@ interface Props {
   id: KanbanColumnType;
   title: string;
   cardIds: string[];
+  contextNotes: Record<string, string>;
   messages: Map<string, Message>;
   onRemove: (id: string) => void;
   onOpen: (messageId: string) => void;
 }
 
-export default function KanbanColumn({ id, title, cardIds, messages, onRemove, onOpen }: Props) {
+export default function KanbanColumn({ id, title, cardIds, contextNotes, messages, onRemove, onOpen }: Props) {
   const { t } = useTranslation();
   const { setNodeRef, isOver } = useDroppable({ id });
 
@@ -69,6 +70,7 @@ export default function KanbanColumn({ id, title, cardIds, messages, onRemove, o
             <KanbanCardComponent
               key={cardId}
               id={cardId}
+              note={contextNotes[cardId]}
               message={messages.get(cardId) || null}
               onRemove={onRemove}
               onOpen={onOpen}

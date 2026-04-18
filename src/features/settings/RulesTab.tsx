@@ -4,6 +4,7 @@ import { Plus, Pencil, Trash2, ShieldCheck, X } from "lucide-react";
 import { createRule, deleteRule, listRules, updateRule, type Rule } from "@/lib/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useToastStore } from "@/stores/toast.store";
+import { useUIStore } from "@/stores/ui.store";
 import { extractErrorMessage } from "@/lib/extractErrorMessage";
 import {
   parseRuleActions,
@@ -69,9 +70,22 @@ const emptyForm: RuleFormData = {
   actions: [{ type: "Archive" }],
 };
 
+function buildRuleFormFromSelection(text: string, name: string): RuleFormData {
+  const value = text.trim();
+  return {
+    name,
+    priority: 0,
+    is_enabled: true,
+    conditions: [{ field: "body", op: "contains", value }],
+    actions: [{ type: "Archive" }],
+  };
+}
+
 export default function RulesTab() {
   const { t } = useTranslation();
   const addToast = useToastStore((s) => s.addToast);
+  const pendingRuleDraftText = useUIStore((s) => s.pendingRuleDraftText);
+  const setPendingRuleDraftText = useUIStore((s) => s.setPendingRuleDraftText);
   const [rules, setRules] = useState<Rule[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleFormData>(emptyForm);
@@ -93,6 +107,17 @@ export default function RulesTab() {
   useEffect(() => {
     fetchRules();
   }, []);
+
+  useEffect(() => {
+    if (!pendingRuleDraftText) return;
+    setEditingId("__new__");
+    setForm(buildRuleFormFromSelection(
+      pendingRuleDraftText,
+      t("rules.contextRuleName", "Selected text rule"),
+    ));
+    setError(null);
+    setPendingRuleDraftText(null);
+  }, [pendingRuleDraftText, setPendingRuleDraftText, t]);
 
   function startCreate() {
     setEditingId("__new__");

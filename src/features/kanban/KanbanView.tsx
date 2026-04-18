@@ -19,7 +19,7 @@ const COLUMN_IDS: { id: KanbanColumnType; titleKey: string }[] = [
 
 export default function KanbanView() {
   const { t } = useTranslation();
-  const { cards, loading, fetchCards, moveCard, removeCard } = useKanbanStore();
+  const { cards, contextNotes, loading, fetchCards, moveCard, removeCard } = useKanbanStore();
   const [messages, setMessages] = useState<Map<string, Message>>(new Map());
 
   const sensors = useSensors(
@@ -122,6 +122,7 @@ export default function KanbanView() {
             id={col.id}
             title={t(col.titleKey)}
             cardIds={cards.filter((c) => c.column === col.id).map((c) => c.message_id)}
+            contextNotes={contextNotes}
             messages={messages}
             onRemove={handleRemove}
             onOpen={handleOpenMessage}

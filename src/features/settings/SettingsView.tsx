@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useUIStore, type SettingsTab } from "@/stores/ui.store";
 import AccountsTab from "./AccountsTab";
 import GeneralTab from "./GeneralTab";
 import AppearanceTab from "./AppearanceTab";
@@ -28,13 +28,11 @@ const TAB_LABEL_KEYS: Record<string, string> = {
 
 export default function SettingsView() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState(
-    () => (sessionStorage.getItem("pebble-settings-tab") as typeof TAB_IDS[number]) || "accounts",
-  );
+  const activeTab = useUIStore((s) => s.settingsTab);
+  const setSettingsTab = useUIStore((s) => s.setSettingsTab);
 
-  function handleTabChange(id: typeof TAB_IDS[number]) {
-    setActiveTab(id);
-    sessionStorage.setItem("pebble-settings-tab", id);
+  function handleTabChange(id: SettingsTab) {
+    setSettingsTab(id);
   }
 
   return (

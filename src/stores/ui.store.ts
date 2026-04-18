@@ -3,6 +3,7 @@ import i18n from "@/lib/i18n";
 import { useComposeStore } from "./compose.store";
 
 export type ActiveView = "inbox" | "kanban" | "settings" | "search" | "snoozed" | "starred" | "compose";
+export type SettingsTab = "accounts" | "general" | "appearance" | "privacy" | "rules" | "remoteWrites" | "translation" | "shortcuts" | "cloudSync" | "about";
 export type Theme = "light" | "dark" | "system";
 export type Language = "en" | "zh";
 export type NetworkStatus = "online" | "offline";
@@ -40,6 +41,10 @@ interface UIState {
   setPollInterval: (secs: number) => void;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
+  settingsTab: SettingsTab;
+  setSettingsTab: (tab: SettingsTab) => void;
+  pendingRuleDraftText: string | null;
+  setPendingRuleDraftText: (text: string | null) => void;
   showFolderUnreadCount: boolean;
   setShowFolderUnreadCount: (show: boolean) => void;
 }
@@ -99,6 +104,13 @@ export const useUIStore = create<UIState>((set) => ({
   },
   searchQuery: "",
   setSearchQuery: (q) => set({ searchQuery: q }),
+  settingsTab: (sessionStorage.getItem("pebble-settings-tab") as SettingsTab) || "accounts",
+  setSettingsTab: (tab) => {
+    sessionStorage.setItem("pebble-settings-tab", tab);
+    set({ settingsTab: tab });
+  },
+  pendingRuleDraftText: null,
+  setPendingRuleDraftText: (text) => set({ pendingRuleDraftText: text }),
   showFolderUnreadCount: localStorage.getItem("pebble-show-unread-count") === "true",
   setShowFolderUnreadCount: (show) => {
     localStorage.setItem("pebble-show-unread-count", String(show));

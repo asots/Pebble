@@ -1,8 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsView from "../../../src/features/settings/SettingsView";
+import { useUIStore } from "../../../src/stores/ui.store";
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: {
+    type: "3rdParty",
+    init: vi.fn(),
+  },
   useTranslation: () => ({
     t: (key: string, fallback?: string) => {
       const labels: Record<string, string> = {
@@ -64,6 +69,10 @@ vi.mock("../../../src/features/settings/PendingOpsTab", () => ({
 }));
 
 describe("SettingsView", () => {
+  beforeEach(() => {
+    useUIStore.setState({ settingsTab: "accounts" });
+  });
+
   it("exposes the pending remote writes queue as a settings tab", () => {
     render(<SettingsView />);
 

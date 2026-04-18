@@ -15,6 +15,8 @@ describe("UIStore", () => {
       previousView: "inbox",
       pollInterval: 15,
       searchQuery: "",
+      settingsTab: "accounts",
+      pendingRuleDraftText: null,
       showFolderUnreadCount: false,
     });
     useComposeStore.setState({
@@ -50,6 +52,17 @@ describe("UIStore", () => {
     expect(useUIStore.getState().activeView).toBe("kanban");
     useUIStore.getState().setActiveView("settings");
     expect(useUIStore.getState().activeView).toBe("settings");
+  });
+
+  it("stores context navigation state for selected-text actions", () => {
+    useUIStore.getState().setSearchQuery("invoice total");
+    useUIStore.getState().setSettingsTab("rules");
+    useUIStore.getState().setPendingRuleDraftText("unsubscribe");
+
+    const state = useUIStore.getState();
+    expect(state.searchQuery).toBe("invoice total");
+    expect(state.settingsTab).toBe("rules");
+    expect(state.pendingRuleDraftText).toBe("unsubscribe");
   });
 
   it("keeps the user on compose when dirty and shows confirmation", () => {

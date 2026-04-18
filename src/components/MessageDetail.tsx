@@ -13,6 +13,10 @@ import TranslatePopover from "../features/translate/TranslatePopover";
 import MessageActionToolbar from "./MessageActionToolbar";
 import { useMessageLoader } from "@/hooks/useMessageLoader";
 import { useBilingualTranslation } from "@/hooks/useBilingualTranslation";
+import { useKanbanStore } from "@/stores/kanban.store";
+import { useToastStore } from "@/stores/toast.store";
+import { useUIStore } from "@/stores/ui.store";
+import SelectionActionPopover from "./SelectionActionPopover";
 
 interface Props {
   messageId: string;
@@ -40,15 +44,18 @@ export default function MessageDetail({ messageId, onBack, folderRole }: Props) 
     return "Strict";
   });
   const [showSnooze, setShowSnooze] = useState(false);
+  const [showSelectionActions, setShowSelectionActions] = useState<{ text: string; position: { x: number; y: number } } | null>(null);
   const [showTranslate, setShowTranslate] = useState<{ text: string; position: { x: number; y: number } } | null>(null);
 
   const snoozeRef = useRef<HTMLDivElement>(null);
+  const selectionActionsRef = useRef<HTMLDivElement>(null);
   const translateRef = useRef<HTMLDivElement>(null);
 
   const { message, setMessage, rendered, loading } = useMessageLoader(messageId, privacyMode);
   const { bilingualMode, bilingualResult, bilingualLoading, handleBilingualToggle, resetBilingual } = useBilingualTranslation(messageId, rendered, message);
 
   useClickOutside(snoozeRef, showSnooze, () => setShowSnooze(false));
+  useClickOutside(selectionActionsRef, !!showSelectionActions, () => setShowSelectionActions(null));
   useClickOutside(translateRef, !!showTranslate, () => setShowTranslate(null));
 
   // Reset bilingual state when messageId changes
@@ -75,23 +82,82 @@ export default function MessageDetail({ messageId, onBack, folderRole }: Props) 
     }
   }
 
-  function openTranslateForSelection(position?: { x: number; y: number }) {
+  function getCurrentSelectedText() {
     const selection = window.getSelection();
-    const selectedText = selection?.toString().trim() || "";
-    if (selectedText.length <= 5) return;
-    if (position) {
-      setShowTranslate({ text: selectedText, position });
-      return;
-    }
+    return selection?.toString().trim() || "";
+  }
+
+  function getCurrentSelectionPosition() {
+    const selection = window.getSelection();
     const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
     const rect = range?.getBoundingClientRect();
     const x = rect && rect.width > 0 ? rect.left + rect.width / 2 : window.innerWidth / 2;
     const y = rect && rect.height > 0 ? rect.bottom : window.innerHeight / 2;
-    setShowTranslate({ text: selectedText, position: { x, y } });
+    return { x, y };
   }
 
-  function handleMouseUp(e: React.MouseEvent) {
-    openTranslateForSelection({ x: e.clientX, y: e.clientY });
+  function openSelectionActionsForSelection(position?: { x: number; y: number }, selectedText = getCurrentSelectedText()) {
+    if (selectedText.length <= 5) return false;
+    setShowTranslate(null);
+    setShowSelectionActions({
+      text: selectedText,
+      position: position ?? getCurrentSelectionPosition(),
+    });
+    return true;
+  }
+
+  function openTranslateForSelection(position?: { x: number; y: number }) {
+    const selectedText = getCurrentSelectedText();
+    if (selectedText.length <= 5) return;
+    setShowSelectionActions(null);
+    setShowTranslate({ text: selectedText, position: position ?? getCurrentSelectionPosition() });
+  }
+
+  function handleTranslateSelectedText(text: string, position: { x: number; y: number }) {
+    setShowSelectionActions(null);
+    setShowTranslate({ text, position });
+  }
+
+  function handleSearchSelectedText(text: string) {
+    useUIStore.getState().setSearchQuery(text);
+    useUIStore.getState().setActiveView("search");
+    setShowSelectionActions(null);
+  }
+
+  function handleCreateRuleFromSelection(text: string) {
+    const ui = useUIStore.getState();
+    ui.setPendingRuleDraftText(text);
+    ui.setSettingsTab("rules");
+    ui.setActiveView("settings");
+    setShowSelectionActions(null);
+  }
+
+  async function handleAddSelectionToKanbanNote(text: string) {
+    setShowSelectionActions(null);
+    try {
+      const kanban = useKanbanStore.getState();
+      if (!kanban.cardIdSet.has(messageId)) {
+        await kanban.addCard(messageId, "todo");
+      }
+      useKanbanStore.getState().setContextNote(messageId, text);
+      useUIStore.getState().setActiveView("kanban");
+      useToastStore.getState().addToast({
+        message: t("kanban.contextNoteAdded", "Added selected text to Kanban note"),
+        type: "success",
+      });
+    } catch {
+      useToastStore.getState().addToast({
+        message: t("kanban.contextNoteFailed", "Failed to add Kanban note"),
+        type: "error",
+      });
+    }
+  }
+
+  function handleContextMenu(e: React.MouseEvent) {
+    const selectedText = getCurrentSelectedText();
+    if (selectedText.length <= 5) return;
+    e.preventDefault();
+    openSelectionActionsForSelection({ x: e.clientX, y: e.clientY }, selectedText);
   }
 
   function handleContentKeyUp(e: React.KeyboardEvent) {
@@ -262,7 +328,7 @@ export default function MessageDetail({ messageId, onBack, folderRole }: Props) 
         role="region"
         aria-label={t("messageDetail.body", "Message body")}
         style={{ flex: 1, overflow: "auto", padding: "16px", outline: "none" }}
-        onMouseUp={handleMouseUp}
+        onContextMenu={handleContextMenu}
         onKeyUp={handleContentKeyUp}
       >
         {bilingualMode && bilingualLoading ? (
@@ -314,6 +380,20 @@ export default function MessageDetail({ messageId, onBack, folderRole }: Props) 
             text={showTranslate.text}
             position={showTranslate.position}
             onClose={() => setShowTranslate(null)}
+          />
+        </div>
+      )}
+
+      {showSelectionActions && (
+        <div ref={selectionActionsRef}>
+          <SelectionActionPopover
+            text={showSelectionActions.text}
+            position={showSelectionActions.position}
+            onTranslate={handleTranslateSelectedText}
+            onSearch={handleSearchSelectedText}
+            onCreateRule={handleCreateRuleFromSelection}
+            onAddToKanbanNote={handleAddSelectionToKanbanNote}
+            onClose={() => setShowSelectionActions(null)}
           />
         </div>
       )}

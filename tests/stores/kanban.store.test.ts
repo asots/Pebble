@@ -12,7 +12,8 @@ const mockedInvoke = vi.mocked(invoke);
 describe("KanbanStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useKanbanStore.setState({ cards: [], loading: false });
+    localStorage.clear();
+    useKanbanStore.setState({ cards: [], cardIdSet: new Set(), contextNotes: {}, loading: false });
   });
 
   it("fetchCards loads cards from backend", async () => {
@@ -80,5 +81,14 @@ describe("KanbanStore", () => {
     await useKanbanStore.getState().removeCard("m1");
 
     expect(useKanbanStore.getState().cards).toHaveLength(1);
+  });
+
+  it("stores context notes for kanban cards", () => {
+    useKanbanStore.getState().setContextNote("m1", "follow up on the selected paragraph");
+
+    expect(useKanbanStore.getState().contextNotes.m1).toBe("follow up on the selected paragraph");
+    expect(JSON.parse(localStorage.getItem("pebble-kanban-context-notes") || "{}")).toEqual({
+      m1: "follow up on the selected paragraph",
+    });
   });
 });

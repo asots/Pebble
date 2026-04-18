@@ -362,7 +362,10 @@
     "clickToOpen": "Click to open message",
     "cardAriaLabel": "{{subject}} from {{sender}}. Press Enter to open, Space to drag.",
     "removedFromBoard": "Card removed from board",
-    "undoRemove": "Undo"
+    "undoRemove": "Undo",
+    "note": "Kanban note",
+    "contextNoteAdded": "Added selected text to Kanban note",
+    "contextNoteFailed": "Failed to add Kanban note"
   },
   "accountSetup": {
     "title": "Add Email Account",
@@ -497,7 +500,8 @@
     "actionType": "Action type",
     "actionValue": "Action value",
     "kanbanColumn": "Kanban column",
-    "conditionValueRequired": "Condition values cannot be empty."
+    "conditionValueRequired": "Condition values cannot be empty.",
+    "contextRuleName": "Selected text rule"
   },
   "translate": {
     "title": "Translation",
@@ -524,6 +528,20 @@
     "testFailed": "Test failed: {{error}}",
     "privacyNotice": "Translation will send the selected text to a third-party translation service. Your email content will leave this device.",
     "acceptAndContinue": "I understand, continue"
+  },
+  "selection": {
+    "actions": "Selected text actions",
+    "copySelectedText": "Copy selected text",
+    "copiedSelectedText": "Copied selected text",
+    "moreActions": "More selected-text actions",
+    "translate": "Translate",
+    "translateSelectedText": "Translate selected text",
+    "search": "Search",
+    "searchSelectedText": "Search selected text",
+    "createRule": "Create rule",
+    "createRuleFromSelection": "Create rule from selected text",
+    "addToKanbanNoteLabel": "Add to Kanban note",
+    "addToKanbanNote": "Add selected text as kanban note"
   },
   "titleBar": {
     "minimize": "Minimize",
