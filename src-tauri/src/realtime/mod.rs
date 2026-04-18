@@ -12,6 +12,7 @@ pub enum RealtimeMode {
     Error,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct RealtimeStatusPayload {
     pub account_id: String,
@@ -20,6 +21,27 @@ pub struct RealtimeStatusPayload {
     pub last_success_at: Option<i64>,
     pub next_retry_at: Option<i64>,
     pub message: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncTrigger {
+    Startup,
+    Manual,
+    Timer,
+    NetworkOnline,
+    WindowFocus,
+    ProviderPush,
+}
+
+impl SyncTrigger {
+    pub fn from_reason(reason: &str) -> Self {
+        match reason {
+            "network_online" => Self::NetworkOnline,
+            "window_focus" => Self::WindowFocus,
+            _ => Self::Manual,
+        }
+    }
 }
 
 #[cfg(test)]

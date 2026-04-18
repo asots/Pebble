@@ -265,6 +265,10 @@ export async function startSync(accountId: string, pollIntervalSecs?: number): P
   return invoke<string>("start_sync", { accountId, pollIntervalSecs: pollIntervalSecs ?? null });
 }
 
+export async function triggerSync(accountId: string, reason: string): Promise<void> {
+  return invoke<void>("trigger_sync", { accountId, reason });
+}
+
 export async function stopSync(accountId: string): Promise<void> {
   return invoke<void>("stop_sync", { accountId });
 }

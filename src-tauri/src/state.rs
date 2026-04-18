@@ -1,3 +1,4 @@
+use crate::realtime::SyncTrigger;
 use pebble_crypto::CryptoService;
 use pebble_search::TantivySearch;
 use pebble_store::Store;
@@ -5,10 +6,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{mpsc, watch, Mutex};
 
 pub struct SyncHandle {
     pub stop_tx: watch::Sender<bool>,
+    pub trigger_tx: mpsc::UnboundedSender<SyncTrigger>,
     pub task: tokio::task::JoinHandle<()>,
 }
 

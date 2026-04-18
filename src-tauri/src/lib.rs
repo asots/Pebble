@@ -269,6 +269,7 @@ pub fn run() {
             commands::messages::lifecycle::move_to_folder,
             commands::search::search_messages,
             commands::sync_cmd::start_sync,
+            commands::sync_cmd::trigger_sync,
             commands::sync_cmd::stop_sync,
             commands::kanban::move_to_kanban,
             commands::kanban::list_kanban_cards,

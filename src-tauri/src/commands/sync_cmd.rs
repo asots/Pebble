@@ -1,13 +1,18 @@
+use crate::commands::indexing;
 use crate::commands::oauth::{
     build_oauth_token_refresher, decode_oauth_account_tokens, gmail_oauth_config,
     outlook_oauth_config,
 };
 use crate::events;
+use crate::realtime::SyncTrigger;
 use crate::state::{AppState, SyncHandle};
-use crate::commands::indexing;
 use pebble_core::{PebbleError, ProviderType};
-use pebble_mail::{GmailProvider, GmailSyncWorker, ImapMailProvider, OutlookProvider, OutlookSyncWorker, SyncConfig, SyncWorker};
+use pebble_mail::{
+    GmailProvider, GmailSyncWorker, ImapMailProvider, OutlookProvider, OutlookSyncWorker,
+    SyncConfig, SyncWorker,
+};
 use pebble_store::Store;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tauri::{Emitter, State};
 use tokio::sync::{mpsc, watch};
@@ -65,8 +70,16 @@ async fn start_sync_inner(
         // Insert a placeholder with a dummy stop channel. The real handle
         // will replace it below. If setup fails, we remove the placeholder.
         let (placeholder_tx, _placeholder_rx) = watch::channel(false);
+        let (placeholder_trigger_tx, _placeholder_trigger_rx) = mpsc::unbounded_channel();
         let placeholder_task = tokio::spawn(async {});
-        handles.insert(account_id.clone(), SyncHandle { stop_tx: placeholder_tx, task: placeholder_task });
+        handles.insert(
+            account_id.clone(),
+            SyncHandle {
+                stop_tx: placeholder_tx,
+                trigger_tx: placeholder_trigger_tx,
+                task: placeholder_task,
+            },
+        );
     }
 
     // Look up account to determine provider type.
@@ -88,6 +101,7 @@ async fn start_sync_inner(
     let store = Arc::clone(&state.store);
     let attachments_dir = state.attachments_dir.clone();
     let (stop_tx, stop_rx) = watch::channel(false);
+    let (trigger_tx, trigger_rx) = mpsc::unbounded_channel();
 
     let (error_tx, mut error_rx) = mpsc::unbounded_channel();
     let app_handle = app.clone();
@@ -117,6 +131,7 @@ async fn start_sync_inner(
         store,
         attachments_dir,
         stop_rx,
+        trigger_rx,
         error_tx,
         message_tx,
         app_for_progress,
@@ -136,7 +151,14 @@ async fn start_sync_inner(
     // Replace the placeholder with the real sync handle.
     {
         let mut handles = state.sync_handles.lock().await;
-        handles.insert(account_id, SyncHandle { stop_tx, task });
+        handles.insert(
+            account_id,
+            SyncHandle {
+                stop_tx,
+                trigger_tx,
+                task,
+            },
+        );
     }
 
     Ok(())
@@ -152,6 +174,7 @@ fn build_sync_task(
     store: Arc<Store>,
     attachments_dir: std::path::PathBuf,
     stop_rx: watch::Receiver<bool>,
+    _trigger_rx: mpsc::UnboundedReceiver<SyncTrigger>,
     error_tx: mpsc::UnboundedSender<pebble_mail::SyncError>,
     message_tx: mpsc::UnboundedSender<pebble_mail::StoredMessage>,
     app_for_progress: tauri::AppHandle,
@@ -277,6 +300,20 @@ fn build_sync_task(
 }
 
 #[tauri::command]
+pub async fn trigger_sync(
+    state: State<'_, AppState>,
+    account_id: String,
+    reason: String,
+) -> std::result::Result<(), PebbleError> {
+    let trigger = SyncTrigger::from_reason(&reason);
+    let handles = state.sync_handles.lock().await;
+    if let Some(handle) = handles.get(&account_id) {
+        let _ = handle.trigger_tx.send(trigger);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn stop_sync(
     state: State<'_, AppState>,
     account_id: String,
@@ -302,4 +339,36 @@ pub async fn reindex_search(
     tokio::task::spawn_blocking(move || indexing::do_reindex(&store, &search))
     .await
     .map_err(|e| PebbleError::Internal(format!("Reindex task failed: {e}")))?
+}
+
+#[allow(dead_code)]
+#[derive(Default)]
+struct TriggerCoalescer {
+    pending: HashSet<String>,
+}
+
+#[allow(dead_code)]
+impl TriggerCoalescer {
+    fn mark_pending(&mut self, account_id: &str) -> bool {
+        self.pending.insert(account_id.to_string())
+    }
+
+    fn clear_pending(&mut self, account_id: &str) {
+        self.pending.remove(account_id);
+    }
+}
+
+#[cfg(test)]
+mod trigger_tests {
+    use super::*;
+
+    #[test]
+    fn coalesces_duplicate_realtime_triggers_for_same_account() {
+        let mut state = TriggerCoalescer::default();
+
+        assert!(state.mark_pending("account-1"));
+        assert!(!state.mark_pending("account-1"));
+        state.clear_pending("account-1");
+        assert!(state.mark_pending("account-1"));
+    }
 }
