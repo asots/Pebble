@@ -1,5 +1,6 @@
 mod commands;
 mod events;
+mod realtime;
 mod snooze_watcher;
 mod state;
 
