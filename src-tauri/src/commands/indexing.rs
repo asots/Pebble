@@ -68,6 +68,18 @@ pub fn do_reindex(store: &Store, search: &TantivySearch) -> std::result::Result<
 /// Receive newly stored messages from the sync worker and index them for search.
 /// Also emits `mail:new` events to notify the frontend, and applies rule engine actions.
 /// Batches messages and commits periodically for efficiency.
+fn new_mail_event_payload(stored: &pebble_mail::StoredMessage) -> serde_json::Value {
+    serde_json::json!({
+        "account_id": stored.message.account_id,
+        "message_id": stored.message.id,
+        "folder_ids": stored.folder_ids,
+        "thread_id": stored.message.thread_id,
+        "subject": stored.message.subject,
+        "from": stored.message.from_address,
+        "received_at": stored.message.date,
+    })
+}
+
 pub async fn index_new_messages(
     search: &Arc<TantivySearch>,
     store: &Arc<Store>,
@@ -121,12 +133,7 @@ pub async fn index_new_messages(
         if let Some(ref app) = app {
             let _ = app.emit(
                 events::MAIL_NEW,
-                serde_json::json!({
-                    "account_id": stored.message.account_id,
-                    "message_id": stored.message.id,
-                    "subject": stored.message.subject,
-                    "from": stored.message.from_address,
-                }),
+                new_mail_event_payload(&stored),
             );
         }
 
@@ -367,7 +374,7 @@ fn queue_remote_rule_action(
 
 #[cfg(test)]
 mod rule_writeback_tests {
-    use super::apply_rule_action;
+    use super::{apply_rule_action, new_mail_event_payload};
     use pebble_core::*;
     use pebble_rules::types::RuleAction;
     use pebble_store::pending_ops::PendingMailOpStatus;
@@ -384,6 +391,52 @@ mod rule_writeback_tests {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    #[test]
+    fn new_mail_event_payload_includes_folder_and_thread_contract() {
+        let message = Message {
+            id: "message-1".to_string(),
+            account_id: "account-1".to_string(),
+            remote_id: "remote-1".to_string(),
+            message_id_header: None,
+            in_reply_to: None,
+            references_header: None,
+            thread_id: Some("thread-1".to_string()),
+            subject: "Hello".to_string(),
+            snippet: "snippet".to_string(),
+            from_address: "sender@example.com".to_string(),
+            from_name: "Sender".to_string(),
+            to_list: vec![],
+            cc_list: vec![],
+            bcc_list: vec![],
+            body_text: String::new(),
+            body_html_raw: String::new(),
+            has_attachments: false,
+            is_read: false,
+            is_starred: false,
+            is_draft: false,
+            date: 1_700_000_000,
+            remote_version: None,
+            is_deleted: false,
+            deleted_at: None,
+            created_at: 1_700_000_000,
+            updated_at: 1_700_000_000,
+        };
+        let stored = pebble_mail::StoredMessage {
+            message,
+            folder_ids: vec!["folder-inbox".to_string()],
+        };
+
+        let payload = new_mail_event_payload(&stored);
+
+        assert_eq!(payload["account_id"], "account-1");
+        assert_eq!(payload["message_id"], "message-1");
+        assert_eq!(payload["folder_ids"], serde_json::json!(["folder-inbox"]));
+        assert_eq!(payload["thread_id"], "thread-1");
+        assert_eq!(payload["subject"], "Hello");
+        assert_eq!(payload["from"], "sender@example.com");
+        assert_eq!(payload["received_at"], 1_700_000_000);
     }
 
     fn test_folder(account_id: &str) -> Folder {

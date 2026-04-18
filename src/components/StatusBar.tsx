@@ -18,6 +18,16 @@ interface MailErrorPayload {
   timestamp: number;
 }
 
+interface MailNewPayload {
+  account_id?: string;
+  message_id?: string;
+  folder_ids?: string[];
+  thread_id?: string | null;
+  subject?: string;
+  from?: string;
+  received_at?: number;
+}
+
 export default function StatusBar() {
   const { t } = useTranslation();
   const syncStatus = useUIStore((s) => s.syncStatus);
@@ -55,9 +65,12 @@ export default function StatusBar() {
 
   // Listen for new mail events: incremental data refresh
   useEffect(() => {
-    const unlisten = listen("mail:new", () => {
+    const unlisten = listen<MailNewPayload>("mail:new", (event) => {
       queryClient.invalidateQueries({ queryKey: ["messages"] });
       queryClient.invalidateQueries({ queryKey: ["threads"] });
+      if (event.payload.account_id) {
+        queryClient.invalidateQueries({ queryKey: ["folders", event.payload.account_id] });
+      }
     });
     return () => { unlisten.then((fn) => fn()); };
   }, [queryClient]);
