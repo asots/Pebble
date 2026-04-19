@@ -116,8 +116,8 @@ impl RealtimePollPolicy {
     pub fn next_delay(&self, ctx: RealtimeContext) -> std::time::Duration {
         if ctx.consecutive_failures > 0 {
             let delay = self
-                .foreground_recent_secs
-                .saturating_mul(2_u64.saturating_pow(ctx.consecutive_failures));
+                .foreground_idle_secs
+                .saturating_mul(2_u64.saturating_pow(ctx.consecutive_failures.saturating_sub(1)));
             return Duration::from_secs(delay.min(self.max_backoff_secs));
         }
 
@@ -170,7 +170,35 @@ mod tests {
                 recent_activity: false,
                 consecutive_failures: 3,
             }),
-            std::time::Duration::from_secs(80)
+            std::time::Duration::from_secs(120)
+        );
+    }
+
+    #[test]
+    fn first_failure_backs_off_from_idle_interval() {
+        let policy = RealtimePollPolicy::default();
+
+        assert_eq!(
+            policy.next_delay(RealtimeContext {
+                app_foreground: true,
+                recent_activity: true,
+                consecutive_failures: 1,
+            }),
+            std::time::Duration::from_secs(30)
+        );
+    }
+
+    #[test]
+    fn failure_backoff_is_capped() {
+        let policy = RealtimePollPolicy::default();
+
+        assert_eq!(
+            policy.next_delay(RealtimeContext {
+                app_foreground: true,
+                recent_activity: true,
+                consecutive_failures: 10,
+            }),
+            std::time::Duration::from_secs(300)
         );
     }
 

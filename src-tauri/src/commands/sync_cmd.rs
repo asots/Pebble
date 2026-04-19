@@ -9,7 +9,7 @@ use crate::state::{AppState, SyncHandle};
 use pebble_core::{PebbleError, ProviderType};
 use pebble_mail::{
     GmailProvider, GmailSyncWorker, ImapMailProvider, OutlookProvider, OutlookSyncWorker,
-    SyncConfig, SyncWorker,
+    SyncConfig, SyncRuntimeStatus, SyncWorker,
 };
 use pebble_store::Store;
 use std::collections::HashSet;
@@ -254,6 +254,18 @@ fn realtime_preference_poll_interval(mode: &str) -> std::result::Result<u64, Peb
     }
 }
 
+fn imap_initial_realtime_mode(_config: &SyncConfig) -> RealtimeMode {
+    RealtimeMode::Polling
+}
+
+fn imap_capability_realtime_mode(config: &SyncConfig, supports_idle: bool) -> RealtimeMode {
+    if !config.manual_only() && supports_idle {
+        RealtimeMode::Realtime
+    } else {
+        RealtimeMode::Polling
+    }
+}
+
 /// Build and spawn the provider-specific sync task.
 ///
 /// Extracted so that any `?` propagation (token decode, config parse, etc.)
@@ -451,15 +463,40 @@ fn build_sync_task(
                     realtime_status_payload(
                         &account_id_for_progress,
                         &ProviderType::Imap,
-                        if config.manual_only() { RealtimeMode::Polling } else { RealtimeMode::Realtime },
+                        imap_initial_realtime_mode(&config),
                         Some(now_timestamp_secs()),
                         None,
-                        if config.manual_only() { Some(polling_status_message(&config)) } else { None },
+                        Some(polling_status_message(&config)),
                     ),
                 );
+                let (runtime_status_tx, mut runtime_status_rx) = mpsc::unbounded_channel();
+                let app_for_runtime_status = app_for_progress.clone();
+                let account_id_for_runtime_status = account_id_for_progress.clone();
+                let config_for_runtime_status = config.clone();
+                tokio::spawn(async move {
+                    while let Some(status) = runtime_status_rx.recv().await {
+                        let supports_idle = matches!(status, SyncRuntimeStatus::ImapIdleAvailable);
+                        emit_realtime_status(
+                            &app_for_runtime_status,
+                            realtime_status_payload(
+                                &account_id_for_runtime_status,
+                                &ProviderType::Imap,
+                                imap_capability_realtime_mode(&config_for_runtime_status, supports_idle),
+                                Some(now_timestamp_secs()),
+                                None,
+                                if supports_idle {
+                                    None
+                                } else {
+                                    Some(polling_status_message(&config_for_runtime_status))
+                                },
+                            ),
+                        );
+                    }
+                });
                 let worker = SyncWorker::new(account_id_clone.clone(), provider, store, stop_rx, attachments_dir)
                     .with_error_tx(error_tx)
-                    .with_message_tx(message_tx);
+                    .with_message_tx(message_tx)
+                    .with_runtime_status_tx(runtime_status_tx);
                 worker.run(config, Some(trigger_rx)).await;
                 let _ = app_for_progress.emit(
                     events::MAIL_SYNC_COMPLETE,
@@ -610,5 +647,28 @@ mod trigger_tests {
         assert_eq!(realtime_preference_poll_interval("battery").unwrap(), 120);
         assert_eq!(realtime_preference_poll_interval("manual").unwrap(), 0);
         assert!(realtime_preference_poll_interval("turbo").is_err());
+    }
+
+    #[test]
+    fn imap_initial_status_is_polling_until_idle_is_confirmed() {
+        let mut config = SyncConfig::default();
+        config.poll_interval_secs = 10;
+
+        assert_eq!(imap_initial_realtime_mode(&config), RealtimeMode::Polling);
+    }
+
+    #[test]
+    fn imap_capability_status_reports_realtime_only_when_idle_is_available() {
+        let mut config = SyncConfig::default();
+        config.poll_interval_secs = 10;
+
+        assert_eq!(
+            imap_capability_realtime_mode(&config, true),
+            RealtimeMode::Realtime
+        );
+        assert_eq!(
+            imap_capability_realtime_mode(&config, false),
+            RealtimeMode::Polling
+        );
     }
 }

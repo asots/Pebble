@@ -316,6 +316,12 @@ pub struct StoredMessage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncRuntimeStatus {
+    ImapIdleAvailable,
+    ImapPollingFallback,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ImapWorkerTrigger {
     ProviderPush,
 }
@@ -336,6 +342,7 @@ pub(crate) struct SyncWorkerBase {
     pub(crate) attachments_dir: PathBuf,
     pub(crate) error_tx: Option<mpsc::UnboundedSender<SyncError>>,
     pub(crate) message_tx: Option<mpsc::UnboundedSender<StoredMessage>>,
+    pub(crate) runtime_status_tx: Option<mpsc::UnboundedSender<SyncRuntimeStatus>>,
 }
 
 impl SyncWorkerBase {
@@ -354,6 +361,12 @@ impl SyncWorkerBase {
     pub(crate) fn emit_message(&self, message: StoredMessage) {
         if let Some(tx) = &self.message_tx {
             let _ = tx.send(message);
+        }
+    }
+
+    pub(crate) fn emit_runtime_status(&self, status: SyncRuntimeStatus) {
+        if let Some(tx) = &self.runtime_status_tx {
+            let _ = tx.send(status);
         }
     }
 }
@@ -383,6 +396,7 @@ impl SyncWorker {
                 attachments_dir: attachments_dir.into(),
                 error_tx: None,
                 message_tx: None,
+                runtime_status_tx: None,
             },
             provider,
             idle_provider,
@@ -399,6 +413,11 @@ impl SyncWorker {
     /// Set the channel for emitting newly stored messages (used for search indexing).
     pub fn with_message_tx(mut self, tx: mpsc::UnboundedSender<StoredMessage>) -> Self {
         self.base.message_tx = Some(tx);
+        self
+    }
+
+    pub fn with_runtime_status_tx(mut self, tx: mpsc::UnboundedSender<SyncRuntimeStatus>) -> Self {
+        self.base.runtime_status_tx = Some(tx);
         self
     }
 
@@ -1078,11 +1097,15 @@ impl SyncWorker {
         let supports_idle = self.provider.inner().supports_idle().await;
         if supports_idle {
             info!("IMAP IDLE supported for account {}", self.base.account_id);
+            self.base
+                .emit_runtime_status(SyncRuntimeStatus::ImapIdleAvailable);
         } else {
             info!(
                 "IMAP IDLE not supported for account {}, using polling",
                 self.base.account_id
             );
+            self.base
+                .emit_runtime_status(SyncRuntimeStatus::ImapPollingFallback);
         }
 
         let supports_condstore = self.provider.inner().supports_condstore().await;

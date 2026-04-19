@@ -260,6 +260,9 @@
     "realtimeAuthRequired": "Reconnect required",
     "realtimeError": "Realtime error",
     "pendingActions": "{{count}} pending",
+    "remoteWritesRetrying": "{{count}} remote writes retrying",
+    "remoteWritesPending": "{{count}} remote writes pending",
+    "remoteWritesQueued": "{{count}} remote writes queued",
     "syncNow": "Sync now",
     "stopSync": "Stop sync"
   },

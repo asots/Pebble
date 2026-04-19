@@ -55,4 +55,19 @@ describe("locale files", () => {
     expect(zh.selection.addToKanbanNoteLabel).toBe("加入看板备注");
     expect(zh.selection.addToKanbanNote).toBe("加入看板备注");
   });
+
+  it("translates remote write status labels in English and Chinese", () => {
+    const en = readLocale("en");
+    const zh = readLocale("zh");
+
+    expect(en.status.remoteWritesRetrying).toBe("{{count}} remote writes retrying");
+    expect(en.status.remoteWritesPending).toBe("{{count}} remote writes pending");
+    expect(en.status.remoteWritesQueued).toBe("{{count}} remote writes queued");
+    expect(zh.status.remoteWritesRetrying).toBeTruthy();
+    expect(zh.status.remoteWritesPending).toBeTruthy();
+    expect(zh.status.remoteWritesQueued).toBeTruthy();
+    expect(zh.status.remoteWritesRetrying).not.toBe(en.status.remoteWritesRetrying);
+    expect(zh.status.remoteWritesPending).not.toBe(en.status.remoteWritesPending);
+    expect(zh.status.remoteWritesQueued).not.toBe(en.status.remoteWritesQueued);
+  });
 });

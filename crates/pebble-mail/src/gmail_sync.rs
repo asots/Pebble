@@ -158,6 +158,7 @@ impl GmailSyncWorker {
                 attachments_dir: attachments_dir.into(),
                 error_tx: None,
                 message_tx: None,
+                runtime_status_tx: None,
             },
             provider,
             stop_rx,

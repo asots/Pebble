@@ -18,4 +18,4 @@ pub use provider::gmail::GmailProvider;
 pub use provider::imap_provider::ImapMailProvider;
 pub use provider::outlook::OutlookProvider;
 pub use realtime_policy::{RealtimeContext, RealtimePollPolicy, RealtimeRuntimeState, SyncTrigger};
-pub use sync::{StoredMessage, SyncConfig, SyncError, SyncWorker};
+pub use sync::{StoredMessage, SyncConfig, SyncError, SyncRuntimeStatus, SyncWorker};

@@ -147,24 +147,58 @@ fn can_advance_outlook_delta_cursor(failure_count: u32) -> bool {
     failure_count == 0
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct OutlookDeletionOutcome {
+    deleted_count: usize,
+    failure_count: u32,
+}
+
+fn apply_outlook_deleted_remote_ids_from_existing<F>(
+    existing: &std::collections::HashMap<String, String>,
+    deleted_remote_ids: &[String],
+    mut soft_delete: F,
+) -> OutlookDeletionOutcome
+where
+    F: FnMut(&str) -> Result<()>,
+{
+    let mut outcome = OutlookDeletionOutcome::default();
+    for remote_id in deleted_remote_ids {
+        if let Some(message_id) = existing.get(remote_id) {
+            match soft_delete(message_id) {
+                Ok(()) => outcome.deleted_count += 1,
+                Err(e) => {
+                    warn!("Failed to apply Outlook tombstone for message {message_id}: {e}");
+                    outcome.failure_count += 1;
+                }
+            }
+        }
+    }
+    outcome
+}
+
 fn apply_outlook_deleted_remote_ids(
     store: &Store,
     account_id: &str,
     deleted_remote_ids: &[String],
-) -> Result<usize> {
+) -> Result<OutlookDeletionOutcome> {
     if deleted_remote_ids.is_empty() {
-        return Ok(0);
+        return Ok(OutlookDeletionOutcome::default());
     }
 
     let existing = store.get_existing_message_map_by_remote_ids(account_id, deleted_remote_ids)?;
-    let mut deleted = 0;
-    for remote_id in deleted_remote_ids {
-        if let Some(message_id) = existing.get(remote_id) {
-            store.soft_delete_message(message_id)?;
-            deleted += 1;
-        }
+    Ok(apply_outlook_deleted_remote_ids_from_existing(
+        &existing,
+        deleted_remote_ids,
+        |message_id| store.soft_delete_message(message_id),
+    ))
+}
+
+fn update_outlook_backoff_after_sync(backoff: &mut SyncBackoff, failure_count: u32) {
+    if failure_count == 0 {
+        backoff.record_success();
+    } else {
+        let _ = backoff.record_failure();
     }
-    Ok(deleted)
 }
 
 /// A sync worker for Outlook accounts using the Microsoft Graph API.
@@ -190,6 +224,7 @@ impl OutlookSyncWorker {
                 attachments_dir: attachments_dir.into(),
                 error_tx: None,
                 message_tx: None,
+                runtime_status_tx: None,
             },
             provider,
             token_refresher: None,
@@ -384,10 +419,7 @@ impl OutlookSyncWorker {
 
             // List folders and fetch messages per folder
             let folders = match self.provider.list_folders().await {
-                Ok(f) => {
-                    backoff.record_success();
-                    f
-                }
+                Ok(f) => f,
                 Err(e) => {
                     warn!("Outlook folder list failed: {e}");
                     self.base.emit_error("sync", &format!("Outlook folder list failed: {e}"));
@@ -422,6 +454,7 @@ impl OutlookSyncWorker {
 
             // Re-read folders from DB so we use persisted IDs (upsert may keep old IDs)
             let db_folders = self.base.store.list_folders(&self.base.account_id).unwrap_or_default();
+            let mut sync_failure_count = 0u32;
 
             for folder in &db_folders {
                 let state = self
@@ -441,14 +474,20 @@ impl OutlookSyncWorker {
                     Ok(batch) => {
                         let mut failure_count = self.persist_folder_messages(folder, batch.messages).await;
 
-                        if let Err(e) = apply_outlook_deleted_remote_ids(
+                        match apply_outlook_deleted_remote_ids(
                             &self.base.store,
                             &self.base.account_id,
                             &batch.deleted_remote_ids,
                         ) {
-                            warn!("Failed to apply Outlook delta tombstones for folder {}: {e}", folder.name);
-                            failure_count += 1;
+                            Ok(outcome) => {
+                                failure_count += outcome.failure_count;
+                            }
+                            Err(e) => {
+                                warn!("Failed to load Outlook tombstones for folder {}: {e}", folder.name);
+                                failure_count += 1;
+                            }
                         }
+                        sync_failure_count += failure_count;
 
                         if let Some(delta_link) = batch.delta_link {
                             if can_advance_outlook_delta_cursor(failure_count) {
@@ -470,6 +509,7 @@ impl OutlookSyncWorker {
                     }
                     Err(e) => {
                         warn!("Outlook delta sync failed for folder {}: {e}", folder.name);
+                        sync_failure_count += 1;
                     }
                 }
 
@@ -481,6 +521,8 @@ impl OutlookSyncWorker {
             if config.manual_only() {
                 break;
             }
+
+            update_outlook_backoff_after_sync(&mut backoff, sync_failure_count);
 
             if wait_for_outlook_policy_delay(&policy, &backoff, &mut runtime, &mut stop_rx, &mut trigger_rx).await {
                 break;
@@ -625,15 +667,55 @@ mod tests {
         store.insert_folder(&folder).unwrap();
         store.insert_message(&message, &[folder.id.clone()]).unwrap();
 
-        let count = apply_outlook_deleted_remote_ids(
+        let outcome = apply_outlook_deleted_remote_ids(
             &store,
             "account-1",
             &["deleted-1".to_string(), "missing".to_string()],
         )
         .unwrap();
 
-        assert_eq!(count, 1);
+        assert_eq!(outcome.deleted_count, 1);
+        assert_eq!(outcome.failure_count, 0);
         assert!(store.get_message(&message.id).unwrap().unwrap().is_deleted);
+    }
+
+    #[test]
+    fn outlook_tombstones_continue_after_per_message_delete_failure() {
+        let existing = [
+            ("deleted-1".to_string(), "message-1".to_string()),
+            ("deleted-2".to_string(), "message-2".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let mut attempted = Vec::new();
+
+        let outcome = apply_outlook_deleted_remote_ids_from_existing(
+            &existing,
+            &["deleted-1".to_string(), "deleted-2".to_string()],
+            |message_id: &str| {
+                attempted.push(message_id.to_string());
+                if message_id == "message-1" {
+                    Err(PebbleError::Storage("delete failed".to_string()))
+                } else {
+                    Ok(())
+                }
+            },
+        );
+
+        assert_eq!(attempted, vec!["message-1".to_string(), "message-2".to_string()]);
+        assert_eq!(outcome.deleted_count, 1);
+        assert_eq!(outcome.failure_count, 1);
+    }
+
+    #[test]
+    fn outlook_backoff_records_failure_after_folder_sync_failures() {
+        let mut backoff = SyncBackoff::new();
+
+        update_outlook_backoff_after_sync(&mut backoff, 2);
+        assert_eq!(backoff.failure_count(), 1);
+
+        update_outlook_backoff_after_sync(&mut backoff, 0);
+        assert_eq!(backoff.failure_count(), 0);
     }
 
 }
