@@ -96,6 +96,7 @@ describe("StatusBar realtime mail events", () => {
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["messages"] });
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["threads"] });
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["folders", "account-1"] });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["folder-unread-counts", "account-1"] });
     expect(mocks.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ["folders"] });
   });
 });

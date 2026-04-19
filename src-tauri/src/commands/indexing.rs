@@ -119,13 +119,14 @@ fn new_mail_notification_body(stored: &pebble_mail::StoredMessage) -> String {
     }
 }
 
-fn notification_open_payload(message_id: &str) -> serde_json::Value {
+fn notification_open_payload(account_id: &str, message_id: &str) -> serde_json::Value {
     serde_json::json!({
+        "account_id": account_id,
         "message_id": message_id,
     })
 }
 
-fn open_message_from_notification(app: &tauri::AppHandle, message_id: &str) {
+fn open_message_from_notification(app: &tauri::AppHandle, account_id: &str, message_id: &str) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -133,7 +134,7 @@ fn open_message_from_notification(app: &tauri::AppHandle, message_id: &str) {
     }
     let _ = app.emit(
         events::MAIL_NOTIFICATION_OPEN,
-        notification_open_payload(message_id),
+        notification_open_payload(account_id, message_id),
     );
 }
 
@@ -169,16 +170,18 @@ fn windows_notification_app_id(app: &tauri::AppHandle) -> String {
 fn show_windows_new_mail_notification(
     app: &tauri::AppHandle,
     body: &str,
+    account_id: &str,
     message_id: &str,
 ) -> Result<(), String> {
     let app_handle = app.clone();
+    let account_id = account_id.to_string();
     let message_id = message_id.to_string();
     tauri_winrt_notification::Toast::new(&windows_notification_app_id(app))
         .title("Pebble - New Mail")
         .text1(body)
         .duration(tauri_winrt_notification::Duration::Short)
         .on_activated(move |_action| {
-            open_message_from_notification(&app_handle, &message_id);
+            open_message_from_notification(&app_handle, &account_id, &message_id);
             Ok(())
         })
         .show()
@@ -193,7 +196,12 @@ fn show_new_mail_notification(
 
     #[cfg(windows)]
     {
-        match show_windows_new_mail_notification(app, &body, &stored.message.id) {
+        match show_windows_new_mail_notification(
+            app,
+            &body,
+            &stored.message.account_id,
+            &stored.message.id,
+        ) {
             Ok(()) => Ok(()),
             Err(e) => {
                 warn!("Failed to show clickable Windows notification, falling back: {e}");
@@ -696,9 +704,10 @@ mod rule_writeback_tests {
     }
 
     #[test]
-    fn notification_open_payload_identifies_clicked_message() {
-        let payload = notification_open_payload("message-1");
+    fn notification_open_payload_identifies_clicked_message_account() {
+        let payload = notification_open_payload("account-2", "message-1");
 
+        assert_eq!(payload["account_id"], "account-2");
         assert_eq!(payload["message_id"], "message-1");
     }
 

@@ -75,6 +75,10 @@ fn can_advance_gmail_cursor(failure_count: usize) -> bool {
     failure_count == 0
 }
 
+fn should_notify_gmail_startup_fetch(stored_cursor: Option<&str>) -> bool {
+    stored_cursor.is_some_and(|cursor| !cursor.trim().is_empty())
+}
+
 async fn collect_paginated_gmail_refs<F, Fut>(
     label_id: &str,
     limit: u32,
@@ -357,6 +361,7 @@ impl GmailSyncWorker {
             .get_sync_cursor(&self.base.account_id)
             .ok()
             .flatten();
+        let notify_new = should_notify_gmail_startup_fetch(stored_cursor.as_deref());
 
         // Get the user profile for the latest historyId
         let (_email, profile_history_id) = self.provider.get_profile().await?;
@@ -378,7 +383,7 @@ impl GmailSyncWorker {
 
         for label_id in &labels_to_sync {
             match self
-                .sync_label(label_id, limit, &folders_by_remote, &mut thread_mappings, false)
+                .sync_label(label_id, limit, &folders_by_remote, &mut thread_mappings, notify_new)
                 .await
             {
                 Ok(outcome) => {
@@ -997,6 +1002,13 @@ mod tests {
     #[test]
     fn gmail_cursor_advances_without_failures() {
         assert!(can_advance_gmail_cursor(0));
+    }
+
+    #[test]
+    fn gmail_startup_fetch_notifies_only_when_history_cursor_exists() {
+        assert!(!should_notify_gmail_startup_fetch(None));
+        assert!(!should_notify_gmail_startup_fetch(Some("")));
+        assert!(should_notify_gmail_startup_fetch(Some("history-1")));
     }
 
     #[tokio::test]

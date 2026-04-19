@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, State};
 use tokio::sync::{mpsc, watch};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 #[tauri::command]
 pub async fn start_sync(
@@ -263,6 +263,29 @@ fn imap_capability_realtime_mode(config: &SyncConfig, supports_idle: bool) -> Re
         RealtimeMode::Realtime
     } else {
         RealtimeMode::Polling
+    }
+}
+
+#[derive(Debug, Default)]
+struct RealtimePreferenceStartSummary {
+    started_count: usize,
+    failures: Vec<(String, String)>,
+}
+
+impl RealtimePreferenceStartSummary {
+    fn record_start_result(
+        &mut self,
+        account_id: &str,
+        result: std::result::Result<(), PebbleError>,
+    ) {
+        match result {
+            Ok(()) => self.started_count += 1,
+            Err(e) => self.failures.push((account_id.to_string(), e.to_string())),
+        }
+    }
+
+    fn into_command_result(self) -> std::result::Result<(), PebbleError> {
+        Ok(())
     }
 }
 
@@ -536,11 +559,17 @@ pub async fn stop_sync(
 async fn stop_sync_inner(state: &AppState, account_id: &str) {
     let mut handles = state.sync_handles.lock().await;
     if let Some(handle) = handles.remove(account_id) {
-        if let Err(e) = handle.stop_tx.send(true) {
-            error!("Failed to send stop signal for account {}: {}", account_id, e);
+        if should_send_stop_signal_to_handle(handle.task.is_finished()) {
+            if let Err(e) = handle.stop_tx.send(true) {
+                warn!("Sync stop channel was already closed for account {}: {}", account_id, e);
+            }
+            handle.task.abort();
         }
-        handle.task.abort();
     }
+}
+
+fn should_send_stop_signal_to_handle(task_finished: bool) -> bool {
+    !task_finished
 }
 
 #[tauri::command]
@@ -569,10 +598,25 @@ pub async fn set_realtime_preference(
         .into_iter()
         .map(|account| account.id)
         .collect::<Vec<_>>();
+
+    let mut start_summary = RealtimePreferenceStartSummary::default();
     for account_id in account_ids {
-        start_sync_inner(&app, &state, account_id, Some(poll_interval_secs)).await?;
+        let result = start_sync_inner(&app, &state, account_id.clone(), Some(poll_interval_secs)).await;
+        if let Err(e) = &result {
+            warn!("Failed to apply realtime preference to account {account_id}: {e}");
+        }
+        start_summary.record_start_result(&account_id, result);
     }
-    Ok(())
+
+    if !start_summary.failures.is_empty() {
+        warn!(
+            "Realtime preference applied with {} account start failure(s); {} account(s) started",
+            start_summary.failures.len(),
+            start_summary.started_count
+        );
+    }
+
+    start_summary.into_command_result()
 }
 
 /// Rebuild the search index from all messages currently in the store.
@@ -647,6 +691,27 @@ mod trigger_tests {
         assert_eq!(realtime_preference_poll_interval("battery").unwrap(), 60);
         assert_eq!(realtime_preference_poll_interval("manual").unwrap(), 0);
         assert!(realtime_preference_poll_interval("turbo").is_err());
+    }
+
+    #[test]
+    fn realtime_preference_start_summary_keeps_successes_after_account_failure() {
+        let mut summary = RealtimePreferenceStartSummary::default();
+
+        summary.record_start_result(
+            "bad-account",
+            Err(PebbleError::Internal("No auth data".to_string())),
+        );
+        summary.record_start_result("good-account", Ok(()));
+
+        assert_eq!(summary.started_count, 1);
+        assert_eq!(summary.failures.len(), 1);
+        assert!(summary.into_command_result().is_ok());
+    }
+
+    #[test]
+    fn finished_sync_handle_does_not_need_stop_signal() {
+        assert!(!should_send_stop_signal_to_handle(true));
+        assert!(should_send_stop_signal_to_handle(false));
     }
 
     #[test]

@@ -307,6 +307,10 @@ impl SyncConfig {
     }
 }
 
+fn should_notify_imap_startup_fetch(since_uid: Option<u32>) -> bool {
+    since_uid.is_some()
+}
+
 /// A newly stored message along with the folder IDs it belongs to.
 /// Emitted via `message_tx` so callers (e.g. the search indexer) can react.
 #[derive(Debug, Clone)]
@@ -564,7 +568,8 @@ impl SyncWorker {
             let cursor = self.imap_folder_cursor_for_sync(folder).await;
             let since_uid = cursor.last_uid;
             let limit = if since_uid.is_some() { 50 } else { 200 };
-            match self.sync_folder(folder, since_uid, limit, false).await {
+            let notify_new = should_notify_imap_startup_fetch(since_uid);
+            match self.sync_folder(folder, since_uid, limit, notify_new).await {
                 Ok(count) => {
                     if count > 0 {
                         info!(
@@ -1346,6 +1351,12 @@ mod tests {
         config.poll_interval_secs = 0;
 
         assert!(config.manual_only());
+    }
+
+    #[test]
+    fn imap_startup_fetch_notifies_only_when_cursor_exists() {
+        assert!(!should_notify_imap_startup_fetch(None));
+        assert!(should_notify_imap_startup_fetch(Some(42)));
     }
 
     #[test]
