@@ -99,8 +99,10 @@ To use Gmail or Outlook, you need OAuth credentials:
 
 | Variable | Description |
 |----------|-------------|
-| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID (Desktop app type, no secret needed; uses PKCE) |
+| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID (Desktop app type; uses PKCE) |
+| `GOOGLE_CLIENT_SECRET` | Optional. Set this if Google returns `client_secret is missing` during login. |
 | `MICROSOFT_CLIENT_ID` | Microsoft Azure public/native app Client ID (no secret needed; uses PKCE) |
+| `MICROSOFT_CLIENT_SECRET` | Optional. Only set this for confidential/web Microsoft app registrations; public/native clients should leave it unset. |
 
 See `.env.example` for the full template.
 

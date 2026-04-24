@@ -1,10 +1,12 @@
 fn main() {
     emit_env_from_dotenv("../.env", "GOOGLE_CLIENT_ID");
+    emit_env_from_dotenv("../.env", "MICROSOFT_CLIENT_ID");
     tauri_build::build()
 }
 
 fn emit_env_from_dotenv(path: &str, key: &str) {
     println!("cargo:rerun-if-changed={path}");
+    println!("cargo:rerun-if-env-changed={key}");
     if std::env::var_os(key).is_some() {
         return;
     }

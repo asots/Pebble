@@ -3,7 +3,7 @@ import i18n from "@/lib/i18n";
 import { useConfirmStore } from "@/stores/confirm.store";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { addAccount, startSync, testImapConnection, completeOAuthFlow } from "@/lib/api";
 import type { AddAccountRequest } from "@/lib/api";
 import { accountsQueryKey } from "@/hooks/queries";
@@ -11,6 +11,24 @@ import { extractErrorMessage } from "@/lib/extractErrorMessage";
 import { realtimePreferenceToPollInterval, useUIStore } from "@/stores/ui.store";
 import { useToastStore } from "@/stores/toast.store";
 import { inputStyle, labelStyle } from "../styles/form";
+
+const FOLDER_REFRESH_ATTEMPTS = 5;
+const FOLDER_REFRESH_INTERVAL_MS = 2000;
+
+function refreshFoldersAfterSyncStart(queryClient: QueryClient, accountId: string) {
+  void queryClient.invalidateQueries({ queryKey: ["folders", accountId] });
+  void queryClient.invalidateQueries({ queryKey: ["folders"] });
+
+  const pollFolders = (attempts: number) => {
+    if (attempts <= 0) return;
+    window.setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: ["folders"] });
+      void queryClient.invalidateQueries({ queryKey: ["folders", accountId] });
+      pollFolders(attempts - 1);
+    }, FOLDER_REFRESH_INTERVAL_MS);
+  };
+  pollFolders(FOLDER_REFRESH_ATTEMPTS);
+}
 
 const PRESETS: Record<
   string,
@@ -178,6 +196,7 @@ export default function AccountSetup({ onClose }: Props) {
       const account = await completeOAuthFlow(provider, form.email || "", form.display_name || "");
       await queryClient.invalidateQueries({ queryKey: accountsQueryKey });
       await startSync(account.id, syncPollInterval);
+      refreshFoldersAfterSyncStart(queryClient, account.id);
       onClose();
     } catch (err) {
       const msg = extractErrorMessage(err);
@@ -222,14 +241,7 @@ export default function AccountSetup({ onClose }: Props) {
         console.warn("Initial sync failed (will retry later):", err),
       );
       // Poll for folders a few times so sidebar updates without manual refresh
-      const pollFolders = (attempts: number) => {
-        if (attempts <= 0) return;
-        setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ["folders"] });
-          pollFolders(attempts - 1);
-        }, 2000);
-      };
-      pollFolders(5);
+      refreshFoldersAfterSyncStart(queryClient, account.id);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {

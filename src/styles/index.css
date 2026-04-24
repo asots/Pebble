@@ -124,3 +124,231 @@ textarea:focus-visible {
 }
 
 /* Tiptap editor uses the global :focus-visible ring. */
+
+/* ─── Search Controls ───────────────────────────────────── */
+
+.search-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg) 96%, var(--color-bg-secondary));
+}
+
+.search-input-shell {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+}
+
+.search-input-shell:focus-within {
+  border-color: color-mix(in srgb, var(--color-accent) 46%, var(--color-border));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent),
+    0 1px 0 rgba(0, 0, 0, 0.02);
+}
+
+.search-input-shell svg {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.search-input:focus-visible {
+  outline: 0;
+}
+
+.search-input::placeholder {
+  color: color-mix(in srgb, var(--color-text-secondary) 82%, transparent);
+}
+
+.search-toolbar-button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.search-toolbar-button:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.search-toolbar-button.is-active {
+  border-color: color-mix(in srgb, var(--color-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+}
+
+.search-toolbar-button--primary {
+  padding: 0 12px;
+  color: var(--color-accent);
+}
+
+.search-toolbar-icon-button {
+  width: 34px;
+  padding: 0;
+}
+
+.search-filters-panel {
+  padding: 14px 18px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg) 92%, var(--color-bg-secondary));
+}
+
+.search-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.search-filter-field {
+  min-width: 0;
+}
+
+.search-filter-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.search-filter-control {
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+}
+
+.search-filter-control:focus-visible {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--color-accent) 46%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+.search-filter-toggle {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: border-color 0.14s ease, background-color 0.14s ease, color 0.14s ease;
+}
+
+.search-filter-toggle:hover {
+  background: var(--color-bg-hover);
+}
+
+.search-filter-toggle:focus-within {
+  border-color: color-mix(in srgb, var(--color-accent) 46%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+.search-filter-checkbox {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.search-filters-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.search-filters-clear {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.search-filters-clear:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+@media (max-width: 1100px) {
+  .search-filters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .search-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .search-input-shell {
+    flex-basis: 100%;
+  }
+
+  .search-filters-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .search-filter-toggle {
+    width: 100%;
+  }
+}

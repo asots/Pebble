@@ -2,7 +2,7 @@ use crate::state::AppState;
 use pebble_core::{new_id, now_timestamp, Account, OAuthTokens, PebbleError, ProviderType};
 use pebble_crypto::CryptoService;
 use pebble_mail::gmail_sync::TokenRefresher;
-use pebble_oauth::{OAuthConfig, OAuthManager};
+use pebble_oauth::{OAuthConfig, OAuthError, OAuthManager};
 use pebble_store::Store;
 use std::sync::Arc;
 use tauri::State;
@@ -67,7 +67,7 @@ pub(crate) fn gmail_oauth_config() -> OAuthConfig {
             option_env!("GOOGLE_CLIENT_ID"),
             "GOOGLE_CLIENT_ID_PLACEHOLDER",
         ),
-        client_secret: None,
+        client_secret: oauth_config_optional_value("GOOGLE_CLIENT_SECRET", None),
         auth_url: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
         token_url: "https://oauth2.googleapis.com/token".to_string(),
         scopes: vec![
@@ -87,10 +87,7 @@ pub(crate) fn outlook_oauth_config() -> OAuthConfig {
             option_env!("MICROSOFT_CLIENT_ID"),
             "MICROSOFT_CLIENT_ID_PLACEHOLDER",
         ),
-        client_secret: oauth_config_optional_value(
-            "MICROSOFT_CLIENT_SECRET",
-            option_env!("MICROSOFT_CLIENT_SECRET"),
-        ),
+        client_secret: oauth_config_optional_value("MICROSOFT_CLIENT_SECRET", None),
         auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".to_string(),
         token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string(),
         scopes: vec![
@@ -188,6 +185,31 @@ fn oauth_config_optional_value(key: &str, compile_value: Option<&str>) -> Option
     } else {
         Some(value)
     }
+}
+
+fn token_exchange_error_message(provider: &str, error: &OAuthError) -> String {
+    let detail = match error {
+        OAuthError::TokenExchange(message) => message.as_str(),
+        _ => return format!("Token exchange failed: {error}"),
+    };
+
+    if provider.eq_ignore_ascii_case("outlook")
+        && detail
+            .to_ascii_lowercase()
+            .contains("client_secret is missing")
+    {
+        return "Token exchange failed: Microsoft rejected this app registration as a confidential client. Configure the Azure app registration as a public/native client with a localhost redirect URI, or set MICROSOFT_CLIENT_SECRET in .env and restart Pebble.".to_string();
+    }
+
+    if provider.eq_ignore_ascii_case("gmail")
+        && detail
+            .to_ascii_lowercase()
+            .contains("client_secret is missing")
+    {
+        return "Token exchange failed: Google rejected this OAuth client because it requires a client secret. Set GOOGLE_CLIENT_SECRET in .env from the Google OAuth Desktop app credentials, then restart Pebble.".to_string();
+    }
+
+    format!("Token exchange failed: {detail}")
 }
 
 fn is_placeholder(value: &str) -> bool {
@@ -457,7 +479,7 @@ pub async fn complete_oauth_flow(
     let token_pair = manager
         .complete_auth(&redirect.code, pkce_state)
         .await
-        .map_err(|e| PebbleError::OAuth(format!("Token exchange failed: {e}")))?;
+        .map_err(|e| PebbleError::OAuth(token_exchange_error_message(&provider, &e)))?;
 
     // Fetch user info from Google/Microsoft to get actual email and display name
     let (real_email, real_name) = fetch_userinfo(&provider, &token_pair.access_token)
@@ -517,11 +539,42 @@ pub async fn complete_oauth_flow(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+    use std::sync::{Mutex, OnceLock};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn env_lock() -> &'static Mutex<()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
 
     #[test]
     fn dotenv_lookup_reads_unquoted_and_quoted_values() {
         let dotenv = r#"
 GOOGLE_CLIENT_ID=google-client.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET='google-secret'
 MICROSOFT_CLIENT_ID="microsoft-client"
 MICROSOFT_CLIENT_SECRET='microsoft-secret'
 "#;
@@ -529,6 +582,10 @@ MICROSOFT_CLIENT_SECRET='microsoft-secret'
         assert_eq!(
             dotenv_lookup_from_str(dotenv, "GOOGLE_CLIENT_ID").as_deref(),
             Some("google-client.apps.googleusercontent.com")
+        );
+        assert_eq!(
+            dotenv_lookup_from_str(dotenv, "GOOGLE_CLIENT_SECRET").as_deref(),
+            Some("google-secret")
         );
         assert_eq!(
             dotenv_lookup_from_str(dotenv, "MICROSOFT_CLIENT_ID").as_deref(),
@@ -571,6 +628,64 @@ MICROSOFT_CLIENT_SECRET='microsoft-secret'
                 "placeholder",
             ),
             "from-compile"
+        );
+    }
+
+    #[test]
+    fn gmail_oauth_config_reads_optional_google_client_secret() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        let _client_id = EnvVarGuard::set(
+            "GOOGLE_CLIENT_ID",
+            "google-client.apps.googleusercontent.com",
+        );
+        let _client_secret = EnvVarGuard::set("GOOGLE_CLIENT_SECRET", "google-secret");
+
+        let config = gmail_oauth_config();
+
+        assert_eq!(config.client_id, "google-client.apps.googleusercontent.com");
+        assert_eq!(config.client_secret.as_deref(), Some("google-secret"));
+    }
+
+    #[test]
+    fn gmail_client_secret_missing_error_explains_secret_config() {
+        let message = token_exchange_error_message(
+            "gmail",
+            &OAuthError::TokenExchange(
+                "Server returned error response: invalid_request: client_secret is missing."
+                    .to_string(),
+            ),
+        );
+
+        assert!(message.contains("Google"));
+        assert!(message.contains("GOOGLE_CLIENT_SECRET"));
+        assert!(!message.contains("Token exchange failed: Token exchange failed"));
+    }
+
+    #[test]
+    fn outlook_client_secret_missing_error_explains_app_registration_mode() {
+        let message = token_exchange_error_message(
+            "outlook",
+            &OAuthError::TokenExchange(
+                "Server returned error response: invalid_request: client_secret is missing."
+                    .to_string(),
+            ),
+        );
+
+        assert!(message.contains("confidential client"));
+        assert!(message.contains("public/native client"));
+        assert!(!message.contains("Token exchange failed: Token exchange failed"));
+    }
+
+    #[test]
+    fn generic_token_exchange_error_is_not_double_prefixed() {
+        let message = token_exchange_error_message(
+            "gmail",
+            &OAuthError::TokenExchange("Server returned error response: invalid_grant".to_string()),
+        );
+
+        assert_eq!(
+            message,
+            "Token exchange failed: Server returned error response: invalid_grant"
         );
     }
 }

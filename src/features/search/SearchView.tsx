@@ -110,48 +110,24 @@ export default function SearchView() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      {/* Search header */}
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          padding: "10px 14px",
-          borderBottom: "1px solid var(--color-border)",
-          backgroundColor: "var(--color-bg)",
-        }}
-      >
-        <Search size={16} color="var(--color-text-secondary)" style={{ flexShrink: 0 }} />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("inbox.searchPlaceholder")}
-          aria-label={t("search.title", "Search")}
-          autoFocus
-          style={{
-            flex: 1,
-            border: "none",
-            backgroundColor: "transparent",
-            fontSize: "14px",
-            color: "var(--color-text-primary)",
-          }}
-        />
+      <form onSubmit={handleSubmit} className="search-toolbar">
+        <div className="search-input-shell">
+          <Search size={16} aria-hidden="true" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("inbox.searchPlaceholder")}
+            aria-label={t("search.title", "Search")}
+            autoFocus
+            className="search-input"
+          />
+        </div>
         <button
           type="submit"
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "4px 8px",
-            color: "var(--color-accent)",
-            display: "flex",
-            alignItems: "center",
-            fontSize: "13px",
-            fontWeight: 500,
-          }}
+          className="search-toolbar-button search-toolbar-button--primary"
         >
+          <Search size={14} aria-hidden="true" />
           {t("search.searchButton")}
         </button>
         <button
@@ -159,17 +135,9 @@ export default function SearchView() {
           onClick={() => setShowFilters(!showFilters)}
           title={t("search.filters")}
           aria-label={t("search.filters")}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "4px",
-            color: showFilters || hasActiveFilters(filters)
-              ? "var(--color-accent)"
-              : "var(--color-text-secondary)",
-            display: "flex",
-            alignItems: "center",
-          }}
+          className={`search-toolbar-button search-toolbar-icon-button ${
+            showFilters || hasActiveFilters(filters) ? "is-active" : ""
+          }`}
         >
           <SlidersHorizontal size={16} />
         </button>

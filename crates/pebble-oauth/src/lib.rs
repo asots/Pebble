@@ -53,6 +53,39 @@ struct ParsedUrls {
 }
 
 impl OAuthManager {
+    fn apply_optional_client_secret<
+        HasAuthUrl: oauth2::EndpointState,
+        HasDeviceAuthUrl: oauth2::EndpointState,
+        HasIntrospectionUrl: oauth2::EndpointState,
+        HasRevocationUrl: oauth2::EndpointState,
+        HasTokenUrl: oauth2::EndpointState,
+    >(
+        &self,
+        client: oauth2::basic::BasicClient<
+            HasAuthUrl,
+            HasDeviceAuthUrl,
+            HasIntrospectionUrl,
+            HasRevocationUrl,
+            HasTokenUrl,
+        >,
+    ) -> oauth2::basic::BasicClient<
+        HasAuthUrl,
+        HasDeviceAuthUrl,
+        HasIntrospectionUrl,
+        HasRevocationUrl,
+        HasTokenUrl,
+    > {
+        match self
+            .config
+            .client_secret
+            .as_deref()
+            .filter(|secret| !secret.is_empty())
+        {
+            Some(secret) => client.set_client_secret(ClientSecret::new(secret.to_string())),
+            None => client,
+        }
+    }
+
     pub fn new(config: OAuthConfig) -> Self {
         Self { config }
     }
@@ -84,10 +117,10 @@ impl OAuthManager {
         let urls = self.parse_urls()?;
         let (challenge, verifier) = pkce::generate_pkce();
 
-        let client = oauth2::basic::BasicClient::new(ClientId::new(self.config.client_id.clone()))
-            .set_client_secret(ClientSecret::new(
-                self.config.client_secret.clone().unwrap_or_default(),
-            ))
+        let client = self
+            .apply_optional_client_secret(oauth2::basic::BasicClient::new(ClientId::new(
+                self.config.client_id.clone(),
+            )))
             .set_auth_uri(urls.auth_url)
             .set_token_uri(urls.token_url)
             .set_redirect_uri(urls.redirect_url);
@@ -117,10 +150,10 @@ impl OAuthManager {
         pkce_state: PkceState,
     ) -> Result<TokenPair, OAuthError> {
         let urls = self.parse_urls()?;
-        let client = oauth2::basic::BasicClient::new(ClientId::new(self.config.client_id.clone()))
-            .set_client_secret(ClientSecret::new(
-                self.config.client_secret.clone().unwrap_or_default(),
-            ))
+        let client = self
+            .apply_optional_client_secret(oauth2::basic::BasicClient::new(ClientId::new(
+                self.config.client_id.clone(),
+            )))
             .set_auth_uri(urls.auth_url)
             .set_token_uri(urls.token_url)
             .set_redirect_uri(urls.redirect_url);
@@ -142,10 +175,10 @@ impl OAuthManager {
     /// Refresh an expired access token using the provided refresh token.
     pub async fn refresh_token(&self, refresh_token: &str) -> Result<TokenPair, OAuthError> {
         let urls = self.parse_urls()?;
-        let client = oauth2::basic::BasicClient::new(ClientId::new(self.config.client_id.clone()))
-            .set_client_secret(ClientSecret::new(
-                self.config.client_secret.clone().unwrap_or_default(),
-            ))
+        let client = self
+            .apply_optional_client_secret(oauth2::basic::BasicClient::new(ClientId::new(
+                self.config.client_id.clone(),
+            )))
             .set_auth_uri(urls.auth_url)
             .set_token_uri(urls.token_url)
             .set_redirect_uri(urls.redirect_url);
@@ -213,6 +246,9 @@ fn token_response_to_pair(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oauth2::{CsrfToken, PkceCodeVerifier};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     fn test_config() -> OAuthConfig {
         OAuthConfig {
@@ -258,5 +294,85 @@ mod tests {
         assert!(url.contains("code_challenge"));
         assert!(!state.verifier.secret().is_empty());
         assert!(!state.csrf_token.secret().is_empty());
+    }
+
+    #[tokio::test]
+    async fn token_exchange_without_secret_uses_public_client_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = stream.read(&mut buffer).await.unwrap();
+                assert_ne!(read, 0, "client closed before sending request");
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+
+            let request_head = String::from_utf8_lossy(&request);
+            let content_length = request_head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length: "))
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            let header_end = request
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+                .map(|position| position + 4)
+                .unwrap();
+            while request.len() < header_end + content_length {
+                let read = stream.read(&mut buffer).await.unwrap();
+                assert_ne!(read, 0, "client closed before request body completed");
+                request.extend_from_slice(&buffer[..read]);
+            }
+
+            let response_body = r#"{"access_token":"access","token_type":"Bearer","expires_in":3600,"refresh_token":"refresh"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+
+            String::from_utf8(request).unwrap()
+        });
+
+        let manager = OAuthManager::new(OAuthConfig {
+            client_id: "public-client-id".into(),
+            client_secret: None,
+            auth_url: format!("http://{addr}/auth"),
+            token_url: format!("http://{addr}/token"),
+            scopes: vec![],
+            redirect_port: 8765,
+        });
+        let token_pair = manager
+            .complete_auth(
+                "code",
+                PkceState {
+                    verifier: PkceCodeVerifier::new("verifier".into()),
+                    csrf_token: CsrfToken::new("state".into()),
+                },
+            )
+            .await
+            .unwrap();
+
+        let request = server.await.unwrap();
+        assert_eq!(token_pair.access_token, "access");
+        assert!(
+            !request
+                .to_ascii_lowercase()
+                .contains("authorization: basic"),
+            "public client token exchange must not send HTTP Basic client auth"
+        );
+        assert!(
+            !request.contains("client_secret"),
+            "public client token exchange must not send an empty client_secret"
+        );
+        assert!(request.contains("client_id=public-client-id"));
+        assert!(request.contains("code_verifier=verifier"));
     }
 }

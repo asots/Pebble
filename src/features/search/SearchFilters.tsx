@@ -2,10 +2,6 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { AdvancedSearchQuery, Folder } from "@/lib/api";
 import { listAccounts, listFolders } from "@/lib/api";
-import {
-  inputStyle as baseInputStyle,
-  labelStyle,
-} from "../../styles/form";
 
 interface FolderWithAccount extends Folder {
   accountEmail: string;
@@ -15,6 +11,21 @@ interface Props {
   filters: AdvancedSearchQuery;
   onChange: (filters: AdvancedSearchQuery) => void;
   onClear: () => void;
+}
+
+function timestampToDateInput(timestamp?: number): string {
+  if (!timestamp) return "";
+
+  const date = new Date(timestamp * 1000);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dateInputToTimestamp(value: string, endOfDay = false): number | undefined {
+  if (!value) return undefined;
+  return Math.floor(new Date(`${value}T${endOfDay ? "23:59:59" : "00:00:00"}`).getTime() / 1000);
 }
 
 export default function SearchFilters({ filters, onChange, onClear }: Props) {
@@ -38,27 +49,15 @@ export default function SearchFilters({ filters, onChange, onClear }: Props) {
     onChange({ ...filters, ...patch });
   }
 
-  const inputStyle: React.CSSProperties = {
-    ...baseInputStyle,
-    padding: "6px 8px",
-    borderRadius: "4px",
-  };
-
-  const fieldStyle: React.CSSProperties = {
-    marginBottom: "10px",
-  };
-
   return (
-    <div
-      style={{
-        padding: "12px 14px",
-        borderBottom: "1px solid var(--color-border)",
-        backgroundColor: "var(--color-bg-secondary)",
-      }}
+    <section
+      role="region"
+      aria-label={t("search.filters")}
+      className="search-filters-panel"
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-        <div style={fieldStyle}>
-          <label htmlFor="search-filter-from" style={labelStyle}>{t("search.from")}</label>
+      <div className="search-filters-grid">
+        <div className="search-filter-field">
+          <label htmlFor="search-filter-from" className="search-filter-label">{t("search.from")}</label>
           <input
             id="search-filter-from"
             name="from"
@@ -66,11 +65,11 @@ export default function SearchFilters({ filters, onChange, onClear }: Props) {
             value={filters.from || ""}
             onChange={(e) => update({ from: e.target.value || undefined })}
             autoComplete="off"
-            style={inputStyle}
+            className="search-filter-control"
           />
         </div>
-        <div style={fieldStyle}>
-          <label htmlFor="search-filter-to" style={labelStyle}>{t("search.to")}</label>
+        <div className="search-filter-field">
+          <label htmlFor="search-filter-to" className="search-filter-label">{t("search.to")}</label>
           <input
             id="search-filter-to"
             name="to"
@@ -78,11 +77,11 @@ export default function SearchFilters({ filters, onChange, onClear }: Props) {
             value={filters.to || ""}
             onChange={(e) => update({ to: e.target.value || undefined })}
             autoComplete="off"
-            style={inputStyle}
+            className="search-filter-control"
           />
         </div>
-        <div style={fieldStyle}>
-          <label htmlFor="search-filter-subject" style={labelStyle}>{t("search.subject")}</label>
+        <div className="search-filter-field">
+          <label htmlFor="search-filter-subject" className="search-filter-label">{t("search.subject")}</label>
           <input
             id="search-filter-subject"
             name="subject"
@@ -90,50 +89,39 @@ export default function SearchFilters({ filters, onChange, onClear }: Props) {
             value={filters.subject || ""}
             onChange={(e) => update({ subject: e.target.value || undefined })}
             autoComplete="off"
-            style={inputStyle}
+            className="search-filter-control"
           />
         </div>
-        <div style={fieldStyle}>
-          <label htmlFor="search-filter-date-from" style={labelStyle}>{t("search.dateFrom")}</label>
+        <div className="search-filter-field">
+          <label htmlFor="search-filter-date-from" className="search-filter-label">{t("search.dateFrom")}</label>
           <input
             id="search-filter-date-from"
             name="date_from"
             type="date"
-            value={
-              filters.dateFrom
-                ? (() => { const d = new Date(filters.dateFrom * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })()
-                : ""
-            }
+            value={timestampToDateInput(filters.dateFrom)}
             onChange={(e) => {
-              const val = e.target.value;
-              update({ dateFrom: val ? Math.floor(new Date(val + "T00:00:00").getTime() / 1000) : undefined });
+              update({ dateFrom: dateInputToTimestamp(e.target.value) });
             }}
-            style={inputStyle}
+            className="search-filter-control"
           />
         </div>
-        <div style={fieldStyle}>
-          <label htmlFor="search-filter-date-to" style={labelStyle}>{t("search.dateTo")}</label>
+        <div className="search-filter-field">
+          <label htmlFor="search-filter-date-to" className="search-filter-label">{t("search.dateTo")}</label>
           <input
             id="search-filter-date-to"
             name="date_to"
             type="date"
-            value={
-              filters.dateTo
-                ? (() => { const d = new Date(filters.dateTo * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })()
-                : ""
-            }
+            value={timestampToDateInput(filters.dateTo)}
             onChange={(e) => {
-              const val = e.target.value;
-              update({
-                dateTo: val
-                  ? Math.floor(new Date(val + "T23:59:59").getTime() / 1000)
-                  : undefined,
-              });
+              update({ dateTo: dateInputToTimestamp(e.target.value, true) });
             }}
-            style={inputStyle}
+            className="search-filter-control"
           />
         </div>
-        <div style={{ ...fieldStyle, display: "flex", alignItems: "flex-end", gap: "6px" }}>
+        <label
+          htmlFor="search-has-attachment"
+          className="search-filter-toggle"
+        >
           <input
             type="checkbox"
             checked={filters.hasAttachment || false}
@@ -141,21 +129,17 @@ export default function SearchFilters({ filters, onChange, onClear }: Props) {
               update({ hasAttachment: e.target.checked ? true : undefined })
             }
             id="search-has-attachment"
+            className="search-filter-checkbox"
           />
-          <label
-            htmlFor="search-has-attachment"
-            style={{ fontSize: "13px", color: "var(--color-text-primary)", cursor: "pointer" }}
-          >
-            {t("search.hasAttachment")}
-          </label>
-        </div>
-        <div style={fieldStyle}>
-          <label htmlFor="search-filter-folder" style={labelStyle}>{t("search.folder")}</label>
+          <span>{t("search.hasAttachment")}</span>
+        </label>
+        <div className="search-filter-field">
+          <label htmlFor="search-filter-folder" className="search-filter-label">{t("search.folder")}</label>
           <select
             id="search-filter-folder"
             value={filters.folderId || ""}
             onChange={(e) => update({ folderId: e.target.value || undefined })}
-            style={{ ...inputStyle, appearance: "auto" }}
+            className="search-filter-control"
           >
             <option value="">{t("search.allFolders")}</option>
             {folders.map((f) => (
@@ -166,21 +150,15 @@ export default function SearchFilters({ filters, onChange, onClear }: Props) {
           </select>
         </div>
       </div>
-      <button
-        onClick={onClear}
-        style={{
-          marginTop: "4px",
-          padding: "4px 10px",
-          fontSize: "12px",
-          color: "var(--color-text-secondary)",
-          backgroundColor: "transparent",
-          border: "1px solid var(--color-border)",
-          borderRadius: "4px",
-          cursor: "pointer",
-        }}
-      >
-        {t("search.clearFilters")}
-      </button>
-    </div>
+      <div className="search-filters-actions">
+        <button
+          type="button"
+          onClick={onClear}
+          className="search-filters-clear"
+        >
+          {t("search.clearFilters")}
+        </button>
+      </div>
+    </section>
   );
 }

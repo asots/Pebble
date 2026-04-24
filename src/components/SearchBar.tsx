@@ -28,46 +28,24 @@ export default function SearchBar({ onSearch, onClear }: Props) {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "8px",
-        padding: "8px 12px",
-        borderBottom: "1px solid var(--color-border)",
-        backgroundColor: "var(--color-bg)",
-      }}
-    >
-      <Search size={15} color="var(--color-text-secondary)" style={{ flexShrink: 0 }} />
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder={t("inbox.searchPlaceholder", "Search messages...")}
-        aria-label={t("search.title", "Search")}
-        style={{
-          flex: 1,
-          border: "none",
-          backgroundColor: "transparent",
-          fontSize: "13px",
-          color: "var(--color-text-primary)",
-        }}
-      />
+    <form onSubmit={handleSubmit} className="search-toolbar">
+      <div className="search-input-shell">
+        <Search size={15} aria-hidden="true" />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={t("inbox.searchPlaceholder", "Search messages...")}
+          aria-label={t("search.title", "Search")}
+          className="search-input"
+        />
+      </div>
       {value && (
         <button
           type="button"
           onClick={handleClear}
           aria-label={t("search.clearFilters", "Clear filters")}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "2px",
-            color: "var(--color-text-secondary)",
-            display: "flex",
-            alignItems: "center",
-          }}
+          className="search-toolbar-button search-toolbar-icon-button"
         >
           <X size={14} />
         </button>
@@ -77,15 +55,7 @@ export default function SearchBar({ onSearch, onClear }: Props) {
         onClick={() => setActiveView("search")}
         title={t("search.advanced", "Advanced search")}
         aria-label={t("search.advanced", "Advanced search")}
-        style={{
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: "2px",
-          color: "var(--color-text-secondary)",
-          display: "flex",
-          alignItems: "center",
-        }}
+        className="search-toolbar-button search-toolbar-icon-button"
       >
         <SlidersHorizontal size={14} />
       </button>
