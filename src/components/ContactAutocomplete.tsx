@@ -174,8 +174,9 @@ export default function ContactAutocomplete({
 
   return (
     <div ref={containerRef} style={{ position: "relative", flex: 1 }}>
-      <div
-        style={{
+        <div
+          className="scroll-region contact-autocomplete-scroll"
+          style={{
           display: "flex",
           flexWrap: "wrap",
           gap: "4px",

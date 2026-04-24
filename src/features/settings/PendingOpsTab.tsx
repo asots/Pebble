@@ -292,7 +292,7 @@ export default function PendingOpsTab() {
           <span>{t("pendingOps.empty", "No pending remote writes.")}</span>
         </div>
       ) : (
-        <div style={{ overflowX: "auto", border: "1px solid var(--color-border)", borderRadius: "6px" }}>
+        <div className="scroll-region pending-ops-table-scroll" style={{ overflowX: "auto", border: "1px solid var(--color-border)", borderRadius: "6px" }}>
           <table style={{ width: "100%", minWidth: "840px", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "var(--color-bg-secondary)" }}>

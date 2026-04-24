@@ -56,7 +56,7 @@ export default function ThreadView() {
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto", padding: "16px" }}>
+      <div ref={scrollRef} className="scroll-region thread-message-scroll" style={{ flex: 1, overflow: "auto", padding: "16px" }}>
         {threadMessages.map((msg, i) => (
           <ThreadMessageBubble
             key={msg.id}

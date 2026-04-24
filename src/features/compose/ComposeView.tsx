@@ -273,7 +273,7 @@ function ComposeViewInner({ accounts }: { accounts: Account[] }) {
       )}
 
       {/* Fields + Editor */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+      <div className="scroll-region compose-scroll" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
         <div style={{ maxWidth: "768px", width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", flex: 1 }}>
           {/* From */}
           {accounts.length > 1 && (
@@ -428,7 +428,7 @@ function ComposeViewInner({ accounts }: { accounts: Account[] }) {
                   <BookTemplate size={13} />
                 </button>
                 {showTemplates && (
-                  <div style={{
+                  <div className="scroll-region compose-template-scroll" style={{
                     position: "absolute", top: "100%", left: 0, zIndex: 100,
                     backgroundColor: "var(--color-bg)", border: "1px solid var(--color-border)",
                     borderRadius: "8px", boxShadow: "0 8px 24px rgba(0,0,0,0.12)",

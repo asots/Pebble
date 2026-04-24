@@ -137,6 +137,7 @@ export default function CommandPalette() {
         />
         <div
           id="command-listbox"
+          className="scroll-region command-list-scroll"
           role="listbox"
           aria-label={t("commandPalette.results", "Commands")}
           style={{ maxHeight: "320px", overflowY: "auto" }}

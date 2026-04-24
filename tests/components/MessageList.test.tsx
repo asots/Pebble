@@ -168,6 +168,22 @@ describe("MessageList", () => {
     expect(screen.getByTestId("message-m-1").getAttribute("data-folder-role")).toBe("archive");
   });
 
+  it("uses the shared smooth scroll region for the virtualized list", () => {
+    render(
+      <MessageList
+        messages={[makeMessage("m-1")]}
+        selectedMessageId={null}
+        onSelectMessage={vi.fn()}
+        loading={false}
+      />,
+    );
+
+    const listbox = screen.getByRole("listbox", { name: "Messages" });
+
+    expect(listbox.className).toContain("scroll-region");
+    expect(listbox.className).toContain("message-list-scroll");
+  });
+
   it("refreshes derived queries after a successful batch star action", async () => {
     mocks.batchStar.mockResolvedValueOnce(2);
     useMailStore.setState({

@@ -13,6 +13,7 @@ import TranslatePopover from "../features/translate/TranslatePopover";
 import MessageActionToolbar from "./MessageActionToolbar";
 import { useMessageLoader } from "@/hooks/useMessageLoader";
 import { useBilingualTranslation } from "@/hooks/useBilingualTranslation";
+import { defaultPrivacyMode } from "@/lib/privacyMode";
 import { useKanbanStore } from "@/stores/kanban.store";
 import { useToastStore } from "@/stores/toast.store";
 import { useUIStore } from "@/stores/ui.store";
@@ -36,13 +37,7 @@ function formatFullDate(timestamp: number): string {
 
 export default function MessageDetail({ messageId, onBack, folderRole }: Props) {
   const { t } = useTranslation();
-  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>(() => {
-    const saved = localStorage.getItem("pebble-privacy-mode");
-    if (saved === "off") return "Off";
-    if (saved === "strict") return "Strict";
-    if (saved === "relaxed") return "LoadOnce";
-    return "Strict";
-  });
+  const [privacyMode, setPrivacyMode] = useState<PrivacyMode>(() => defaultPrivacyMode());
   const [showSnooze, setShowSnooze] = useState(false);
   const [showSelectionActions, setShowSelectionActions] = useState<{ text: string; position: { x: number; y: number } } | null>(null);
   const [showTranslate, setShowTranslate] = useState<{ text: string; position: { x: number; y: number } } | null>(null);
@@ -344,6 +339,7 @@ export default function MessageDetail({ messageId, onBack, folderRole }: Props) 
 
       {/* Body */}
       <div
+        className="scroll-region message-body-scroll"
         tabIndex={0}
         role="region"
         aria-label={t("messageDetail.body", "Message body")}

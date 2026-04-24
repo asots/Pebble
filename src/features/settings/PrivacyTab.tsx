@@ -4,17 +4,20 @@ import { useMailStore } from "@/stores/mail.store";
 import { useToastStore } from "@/stores/toast.store";
 import { listTrustedSenders, removeTrustedSender } from "@/lib/api";
 import type { TrustedSender } from "@/lib/api";
+import {
+  PRIVACY_MODE_KEY,
+  readStoredPrivacyMode,
+  type StoredPrivacyMode,
+} from "@/lib/privacyMode";
 import { Trash2 } from "lucide-react";
-
-const PRIVACY_MODE_KEY = "pebble-privacy-mode";
 
 export default function PrivacyTab() {
   const { t } = useTranslation();
   const activeAccountId = useMailStore((s) => s.activeAccountId);
   const [trustedSenders, setTrustedSenders] = useState<TrustedSender[]>([]);
-  const [privacyMode, setPrivacyMode] = useState<"strict" | "relaxed" | "off">(() => {
-    return (localStorage.getItem(PRIVACY_MODE_KEY) as "strict" | "relaxed" | "off") || "strict";
-  });
+  const [privacyMode, setPrivacyMode] = useState<StoredPrivacyMode>(() =>
+    readStoredPrivacyMode(),
+  );
 
   useEffect(() => {
     if (activeAccountId) {
@@ -30,7 +33,7 @@ export default function PrivacyTab() {
     }
   }, [activeAccountId, t]);
 
-  function handlePrivacyModeChange(mode: "strict" | "relaxed" | "off") {
+  function handlePrivacyModeChange(mode: StoredPrivacyMode) {
     setPrivacyMode(mode);
     localStorage.setItem(PRIVACY_MODE_KEY, mode);
   }

@@ -18,4 +18,37 @@ describe("ShadowDomEmail", () => {
     expect(shadowMarkup).toContain("var(--color-accent)");
     expect(shadowMarkup).not.toContain("color: #1a1a1a");
   });
+
+  it("themes horizontal overflow inside email content", async () => {
+    const { container } = render(<ShadowDomEmail html="<pre>long code line</pre>" />);
+    const host = container.firstChild as HTMLDivElement | null;
+
+    await waitFor(() => {
+      expect(host?.shadowRoot).not.toBeNull();
+    });
+
+    const shadowMarkup = host!.shadowRoot!.innerHTML;
+    expect(shadowMarkup).toContain("scrollbar-width: thin");
+    expect(shadowMarkup).toContain("::-webkit-scrollbar-thumb");
+  });
+
+  it("keeps light-authored email html readable in dark theme", async () => {
+    document.documentElement.setAttribute("data-theme", "dark");
+
+    const { container } = render(
+      <ShadowDomEmail html={'<div style="color: #000000">Dark inline text</div>'} />,
+    );
+    const host = container.firstChild as HTMLDivElement | null;
+
+    await waitFor(() => {
+      expect(host?.shadowRoot).not.toBeNull();
+    });
+
+    const shadowMarkup = host!.shadowRoot!.innerHTML;
+    expect(shadowMarkup).toContain('class="pebble-email-content"');
+    expect(shadowMarkup).toContain(':host-context([data-theme="dark"]) .pebble-email-content');
+    expect(shadowMarkup).toContain("color-scheme: light");
+    expect(shadowMarkup).toContain("background: #fff");
+    expect(shadowMarkup).toContain("color: #202124");
+  });
 });

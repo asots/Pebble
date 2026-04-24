@@ -28,11 +28,42 @@ export function ShadowDomEmail({ html, className }: ShadowDomEmailProps) {
         }
         img { max-width: 100%; height: auto; }
         a { color: var(--color-accent); }
-        pre { white-space: pre-wrap; overflow-x: auto; }
+        .pebble-email-content {
+          box-sizing: border-box;
+          max-width: 100%;
+          color: inherit;
+          background: transparent;
+        }
+        :host-context([data-theme="dark"]) .pebble-email-content {
+          display: inline-block;
+          max-width: 100%;
+          color-scheme: light;
+          color: #202124;
+          background: #fff;
+        }
+        pre {
+          white-space: pre-wrap;
+          overflow-x: auto;
+          scrollbar-color: var(--color-scrollbar-thumb) transparent;
+          scrollbar-width: thin;
+        }
+        pre::-webkit-scrollbar {
+          width: 10px;
+          height: 10px;
+        }
+        pre::-webkit-scrollbar-thumb {
+          border: 3px solid transparent;
+          border-radius: 999px;
+          background-clip: content-box;
+          background-color: var(--color-scrollbar-thumb);
+        }
+        pre:hover::-webkit-scrollbar-thumb {
+          background-color: var(--color-scrollbar-thumb-hover);
+        }
         table { max-width: 100%; border-collapse: collapse; }
         body, div { word-wrap: break-word; overflow-wrap: break-word; }
       </style>
-      <div>${safeHtml}</div>
+      <div class="pebble-email-content">${safeHtml}</div>
     `;
   }, [html]);
 

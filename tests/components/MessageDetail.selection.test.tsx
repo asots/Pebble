@@ -136,4 +136,13 @@ describe("MessageDetail selected-text context actions", () => {
 
     expect(body.getAttribute("style")).not.toContain("outline: none");
   });
+
+  it("uses the shared smooth scroll region for the message body", () => {
+    render(<MessageDetail messageId="message-1" onBack={vi.fn()} />);
+
+    const body = screen.getByRole("region", { name: "Message body" });
+
+    expect(body.className).toContain("scroll-region");
+    expect(body.className).toContain("message-body-scroll");
+  });
 });

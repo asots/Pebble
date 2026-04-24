@@ -146,7 +146,7 @@ export default function StarredView() {
           </span>
         </div>
 
-        <div ref={parentRef} style={{ flex: 1, overflow: "auto" }}>
+        <div ref={parentRef} className="scroll-region starred-list-scroll" style={{ flex: 1, overflow: "auto" }}>
           <div style={{ height: `${virtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
             {virtualizer.getVirtualItems().map((virtualItem) => {
               const msg = visibleMessages[virtualItem.index];
@@ -203,7 +203,7 @@ export default function StarredView() {
       </div>
 
       {scopedSelectedId && (
-        <div style={{ flex: 1, overflow: "auto" }}>
+        <div className="scroll-region starred-detail-scroll" style={{ flex: 1, overflow: "auto" }}>
           <MessageDetail
             messageId={scopedSelectedId}
             onBack={() => setSelectedId(null)}

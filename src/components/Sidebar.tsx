@@ -236,6 +236,7 @@ export default function Sidebar() {
 
       {/* Folders section */}
       <nav
+        className="scroll-region sidebar-folder-scroll"
         aria-label={t("sidebar.mailFolders", "Mail folders")}
         style={{
           flex: 1,

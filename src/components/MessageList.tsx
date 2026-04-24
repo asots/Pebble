@@ -180,6 +180,7 @@ export default function MessageList({
       )}
       <div
         ref={parentRef}
+        className="scroll-region message-list-scroll"
         role="listbox"
         aria-label={t("inbox.messageList", "Messages")}
         style={{ flex: 1, overflow: "auto" }}

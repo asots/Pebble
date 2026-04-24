@@ -328,7 +328,7 @@ export default function AccountSetup({ onClose }: Props) {
         </div>
 
         {/* Scrollable body */}
-        <div style={{ overflowY: "auto", padding: "20px" }}>
+        <div className="scroll-region account-setup-scroll" style={{ overflowY: "auto", padding: "20px" }}>
           {/* OAuth sign-in buttons */}
           <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
             <button

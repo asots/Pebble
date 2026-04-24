@@ -55,6 +55,7 @@ export default function KanbanColumn({ id, title, cardIds, contextNotes, message
       </div>
       <div
         ref={setNodeRef}
+        className="scroll-region kanban-column-scroll"
         style={{
           flex: 1,
           padding: "0 8px 8px",

@@ -258,7 +258,7 @@ function ThreadList({ threads, selectedThreadId, onSelectThread, loading }: {
   }
 
   return (
-    <div ref={parentRef} style={{ height: "100%", overflow: "auto" }}>
+    <div ref={parentRef} className="scroll-region thread-list-scroll" style={{ height: "100%", overflow: "auto" }}>
       <div
         role="listbox"
         aria-label={t("inbox.threadList", "Threads")}

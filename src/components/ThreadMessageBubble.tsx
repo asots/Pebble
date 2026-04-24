@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getRenderedHtml } from "@/lib/api";
 import type { Message, RenderedHtml } from "@/lib/api";
+import { defaultPrivacyMode } from "@/lib/privacyMode";
 import { sanitizeHtml } from "@/lib/sanitizeHtml";
 import { ShadowDomEmail } from "./ShadowDomEmail";
 
@@ -25,7 +26,7 @@ export default function ThreadMessageBubble({ message, defaultExpanded = false }
 
   useEffect(() => {
     if (expanded && !rendered) {
-      getRenderedHtml(message.id, "Strict")
+      getRenderedHtml(message.id, defaultPrivacyMode())
         .then((html) => setRendered({ ...html, html: sanitizeHtml(html.html) }))
         .catch((err) => console.warn("Failed to render thread message HTML", err));
     }

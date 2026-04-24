@@ -506,7 +506,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
           </button>
         </div>
 
-        <div style={{ overflowY: "auto", padding: "20px" }}>
+        <div className="scroll-region edit-account-scroll" style={{ overflowY: "auto", padding: "20px" }}>
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             <div style={fieldStyle}>
               <label style={labelStyle}>{t("accountSetup.displayName")}</label>

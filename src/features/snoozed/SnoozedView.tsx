@@ -132,7 +132,7 @@ export default function SnoozedView() {
         </span>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto" }}>
+      <div className="scroll-region snoozed-list-scroll" style={{ flex: 1, overflowY: "auto" }}>
         {entries.map((entry) => (
           <div
             key={entry.snooze.message_id}

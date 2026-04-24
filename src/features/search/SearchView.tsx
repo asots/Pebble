@@ -157,6 +157,7 @@ export default function SearchView() {
         {/* Results list */}
         <div
           ref={resultsParentRef}
+          className="scroll-region search-results-scroll"
           style={{
             width: selectedId ? "clamp(260px, 32%, 360px)" : "100%",
             flexShrink: 0,

@@ -91,6 +91,7 @@ export default function SettingsView() {
       {/* Tab content */}
       <div
         id={`settings-tabpanel-${activeTab}`}
+        className="scroll-region settings-panel-scroll"
         role="tabpanel"
         aria-labelledby={`settings-tab-${activeTab}`}
         style={{ flex: 1, padding: "32px", maxWidth: activeTab === "remoteWrites" ? "980px" : "640px", overflow: "auto" }}
