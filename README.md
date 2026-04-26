@@ -1,13 +1,19 @@
 <p align="center">
-  <img src="site/screenshots/main.png" alt="Pebble" width="800">
+  <img src="site/screenshots/main.png" alt="Pebble inbox preview" width="800">
 </p>
 
 <h1 align="center">Pebble</h1>
 
 <p align="center">
-  A privacy-first desktop email client built with Rust and React.
-  <br>
-  Local-first: mail, search index, and attachments stay on your device. No telemetry. Outbound traffic only for features you configure — mail sync, translation, and WebDAV settings backup.
+  A local-first desktop email client for people who want a calmer, more private inbox.
+</p>
+
+<p align="center">
+  <a href="README.zh-CN.md">简体中文</a>
+  ·
+  <a href="https://github.com/QingJ01/Pebble/releases">Releases</a>
+  ·
+  <a href="LICENSE">License</a>
 </p>
 
 <p align="center">
@@ -17,160 +23,195 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square" alt="Platform">
 </p>
 
----
+## Overview
 
-## Features
+Pebble is a desktop mail client built with Rust, Tauri, and React. It keeps mail data, the search index, attachments, rules, and application settings on your device by default.
 
-**Privacy & Security**
-- Local-first storage — SQLite database, search index, attachments all on your device
-- AES-256 encrypted OAuth tokens and credentials with per-device key
-- No telemetry. Outbound network traffic only for features you enable: mail sync with your provider, translation (sends the selected text to the service you configure), and WebDAV settings backup (runs against the server you provide)
-- Data retention: deleted messages are soft-deleted and purged after 30 days; use "Empty Trash" to permanently remove them immediately
-- Open source under AGPL-3.0
+The app is designed around a few practical ideas:
 
-**Email Management**
-- Gmail, Outlook (experimental), and IMAP support — all accounts in one place
-- Kanban board — drag emails across Todo, Waiting, and Done columns
-- Smart search powered by Tantivy full-text search engine
-- Snooze & Star — resurface emails later, mark what matters
-- Rules engine — auto-label, move, or flag with custom conditions
+- Your mailbox should stay readable, fast, and quiet.
+- Email workflows should be local-first instead of cloud-dashboard-first.
+- Privacy controls should be explicit, visible, and easy to override per message.
+- Search, snooze, rules, and a Kanban board should work together instead of living in separate tools.
 
-**User Experience**
-- Dark & Light themes with system-aware auto-switching
-- Keyboard-friendly navigation — core actions (compose, reply, archive, search, navigate) have shortcuts; see the table below
-- Built-in translation with DeepL / LLM bilingual view
-- i18n support — English and Chinese built-in
+Pebble currently supports Gmail, IMAP, and experimental Outlook accounts.
+
+## Highlights
+
+### Local-first privacy
+
+- Local SQLite database for messages, folders, labels, rules, and settings.
+- Local Tantivy full-text index for fast search.
+- Attachments are stored on disk under the app data directory.
+- OAuth tokens and credentials are encrypted with a per-device key.
+- No telemetry.
+- Network requests are limited to features you configure: mail sync, translation, and optional WebDAV settings backup.
+
+### Mail workflow
+
+- Unified inbox across multiple accounts.
+- Gmail, IMAP, and experimental Outlook support.
+- Threaded and message-list views.
+- Archive, delete, star, mark read, batch actions, and restore flows.
+- Snooze messages and bring them back later.
+- Full-text search and advanced filters.
+- Rules engine for automatic organization.
+
+### Productivity tools
+
+- Kanban board with Todo, Waiting, and Done columns.
+- Command palette and keyboard-first navigation.
+- Built-in translation providers with bilingual reading.
+- Dark and light themes.
+- English and Chinese UI.
+- Optional WebDAV backup for settings, rules, and Kanban data.
 
 ## Screenshots
 
 <table>
   <tr>
-    <td><img src="site/screenshots/inbox.png" alt="Inbox"><br><b>Inbox</b> — Three-panel layout</td>
-    <td><img src="site/screenshots/kanban.png" alt="Kanban"><br><b>Kanban</b> — Drag-and-drop email board</td>
+    <td><img src="site/screenshots/inbox.png" alt="Inbox"><br><b>Inbox</b></td>
+    <td><img src="site/screenshots/kanban.png" alt="Kanban board"><br><b>Kanban</b></td>
   </tr>
   <tr>
-    <td><img src="site/screenshots/dark.png" alt="Dark Mode"><br><b>Dark Mode</b> — Beautiful dark theme</td>
-    <td><img src="site/screenshots/settings.png" alt="Settings"><br><b>Settings</b> — Privacy & appearance</td>
+    <td><img src="site/screenshots/dark.png" alt="Dark mode"><br><b>Dark Mode</b></td>
+    <td><img src="site/screenshots/settings.png" alt="Settings"><br><b>Settings</b></td>
   </tr>
 </table>
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
+| --- | --- |
+| Desktop shell | Tauri 2 |
 | Backend | Rust |
-| Desktop Framework | Tauri v2 |
-| Frontend | React 19 + TypeScript |
-| State Management | Zustand + TanStack Query |
-| Database | SQLite (rusqlite) |
+| Frontend | React 19, TypeScript |
+| State | Zustand, TanStack Query |
+| Database | SQLite via rusqlite |
 | Search | Tantivy |
-| Styling | Tailwind CSS |
-| i18n | i18next |
+| Styling | Tailwind CSS and app CSS |
+| Localization | i18next |
 
 ## Getting Started
 
 ### Prerequisites
 
-- [Rust](https://www.rust-lang.org/tools/install) (latest stable)
-- [Node.js](https://nodejs.org/) (v18+)
-- [pnpm](https://pnpm.io/) (v8+)
+- Rust stable
+- Node.js 18 or newer
+- pnpm 8 or newer
+- Tauri system dependencies for your platform
 
-### Setup
+### Development Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/QingJ01/Pebble.git
 cd Pebble
 
-# Install frontend dependencies
 pnpm install
-
-# Set up environment variables
 cp .env.example .env
-# Edit .env with your OAuth credentials (see below)
 
-# Run in development mode
 pnpm dev
 ```
 
-### OAuth Configuration
-
-To use Gmail or Outlook, you need OAuth credentials:
-
-| Variable | Description |
-|----------|-------------|
-| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID (Desktop app type; uses PKCE) |
-| `GOOGLE_CLIENT_SECRET` | Optional. Set this if Google returns `client_secret is missing` during login. |
-| `MICROSOFT_CLIENT_ID` | Microsoft Azure public/native app Client ID (no secret needed; uses PKCE) |
-| `MICROSOFT_CLIENT_SECRET` | Optional. Only set this for confidential/web Microsoft app registrations; public/native clients should leave it unset. |
-
-See `.env.example` for the full template.
+The development command starts the Vite frontend and the Tauri desktop app.
 
 ### Build
 
 ```bash
-# Build the desktop app
 pnpm build
 ```
 
-Build artifacts will be under `target/release/` and `target/release/bundle/`.
+Desktop bundles are written under `target/release/` and `target/release/bundle/`.
+
+## OAuth Configuration
+
+Pebble can connect to Gmail and Outlook through OAuth. IMAP accounts use the IMAP/SMTP credentials configured in the app.
+
+Copy `.env.example` to `.env`, then fill the provider values you need.
+
+| Variable | Description |
+| --- | --- |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID. Use a Desktop app client when possible. |
+| `GOOGLE_CLIENT_SECRET` | Optional for PKCE flows. Add it if Google rejects token exchange with `client_secret is missing`. |
+| `MICROSOFT_CLIENT_ID` | Microsoft public/native app client ID. |
+| `MICROSOFT_CLIENT_SECRET` | Optional. Leave empty for public/native Microsoft apps. |
+
+## Useful Scripts
+
+| Command | Purpose |
+| --- | --- |
+| `pnpm dev` | Run the Tauri desktop app in development mode. |
+| `pnpm dev:frontend` | Run only the Vite frontend dev server. |
+| `pnpm test` | Run frontend tests with Vitest. |
+| `pnpm build:frontend` | Type-check and build the frontend. |
+| `pnpm build` | Build the desktop app. |
+| `cargo test -p pebble-mail` | Run the mail crate tests. |
+| `cargo check` | Check the Rust workspace. |
 
 ## Project Structure
 
-```
+```text
 Pebble/
-├── src/                    # React frontend
-│   ├── components/         # Shared UI components
-│   ├── features/           # Feature modules (inbox, kanban, settings...)
-│   ├── hooks/              # React hooks & mutations
-│   ├── stores/             # Zustand state stores
-│   └── lib/                # Utilities, API, i18n
-├── src-tauri/              # Tauri backend
-│   └── src/commands/       # Tauri IPC commands
-├── crates/                 # Rust workspace crates
-│   ├── pebble-core/        # Shared types & errors
-│   ├── pebble-store/       # SQLite persistence
-│   ├── pebble-mail/        # Email sync (Gmail, IMAP)
-│   ├── pebble-search/      # Tantivy search index
-│   ├── pebble-crypto/      # AES-256 encryption
-│   ├── pebble-oauth/       # OAuth 2.0 + PKCE flow
-│   ├── pebble-rules/       # Rules engine
-│   ├── pebble-translate/   # Translation providers
-│   └── pebble-privacy/     # Privacy utilities
-└── site/                   # Landing page (static HTML)
+|-- src/                    React frontend
+|   |-- components/         Shared UI components
+|   |-- features/           Inbox, compose, search, Kanban, settings
+|   |-- hooks/              React hooks and query helpers
+|   |-- lib/                IPC API, i18n, utilities
+|   `-- stores/             Zustand stores
+|-- src-tauri/              Tauri application and IPC commands
+|-- crates/                 Rust workspace crates
+|   |-- pebble-core/        Shared types and errors
+|   |-- pebble-store/       SQLite persistence
+|   |-- pebble-mail/        Mail providers and sync
+|   |-- pebble-search/      Tantivy search index
+|   |-- pebble-crypto/      Credential encryption
+|   |-- pebble-oauth/       OAuth 2.0 and PKCE
+|   |-- pebble-rules/       Rules engine
+|   |-- pebble-translate/   Translation providers
+|   `-- pebble-privacy/     HTML sanitizing and tracker controls
+|-- tests/                  Frontend tests
+`-- site/                   Static project site and screenshots
 ```
 
 ## Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `J` / `K` | Navigate up / down |
-| `Enter` | Open email |
+| Shortcut | Action |
+| --- | --- |
+| `J` / `K` | Move through messages |
+| `Enter` | Open the selected message |
 | `E` | Archive |
 | `S` | Toggle star |
 | `R` | Reply |
 | `A` | Reply all |
 | `F` | Forward |
-| `C` | Compose new email |
+| `C` | Compose |
 | `/` | Focus search |
-| `Esc` | Close / go back |
+| `Esc` | Close, cancel, or go back |
+
+Shortcuts can be reviewed and customized in Settings.
+
+## Status
+
+Pebble is under active development. It is usable for day-to-day testing, but mail clients handle sensitive data and provider behavior varies. Keep backups of important mail, and verify account actions against your provider when testing new builds.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues and pull requests.
+Issues and pull requests are welcome.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+For code changes, please keep patches focused and include tests for behavior changes when practical. Before submitting, run the relevant checks:
+
+```bash
+pnpm test
+pnpm build:frontend
+cargo check
+```
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+Pebble is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
 ---
 
 <p align="center">
-  Built with care by <a href="https://github.com/QingJ01">QingJ</a>
+  Built by <a href="https://github.com/QingJ01">QingJ</a>.
 </p>
