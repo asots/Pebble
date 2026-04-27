@@ -23,6 +23,7 @@ This release includes:
 - Privacy controls for remote images, trusted senders, tracker blocking, sanitized HTML rendering, and safer attachment filenames.
 - Desktop notifications with click navigation.
 - Custom title bar with consistent app logo rendering on Windows.
+- OAuth client secrets are included in release builds when configured.
 - English and Chinese README documentation.
 - GitHub Actions CI and tag-driven Windows NSIS installer packaging with SHA256 checksum files.
 

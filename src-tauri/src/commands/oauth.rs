@@ -67,7 +67,10 @@ pub(crate) fn gmail_oauth_config() -> OAuthConfig {
             option_env!("GOOGLE_CLIENT_ID"),
             "GOOGLE_CLIENT_ID_PLACEHOLDER",
         ),
-        client_secret: oauth_config_optional_value("GOOGLE_CLIENT_SECRET", None),
+        client_secret: oauth_config_optional_value(
+            "GOOGLE_CLIENT_SECRET",
+            option_env!("GOOGLE_CLIENT_SECRET"),
+        ),
         auth_url: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
         token_url: "https://oauth2.googleapis.com/token".to_string(),
         scopes: vec![
@@ -87,7 +90,10 @@ pub(crate) fn outlook_oauth_config() -> OAuthConfig {
             option_env!("MICROSOFT_CLIENT_ID"),
             "MICROSOFT_CLIENT_ID_PLACEHOLDER",
         ),
-        client_secret: oauth_config_optional_value("MICROSOFT_CLIENT_SECRET", None),
+        client_secret: oauth_config_optional_value(
+            "MICROSOFT_CLIENT_SECRET",
+            option_env!("MICROSOFT_CLIENT_SECRET"),
+        ),
         auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".to_string(),
         token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string(),
         scopes: vec![
@@ -644,6 +650,25 @@ MICROSOFT_CLIENT_SECRET='microsoft-secret'
 
         assert_eq!(config.client_id, "google-client.apps.googleusercontent.com");
         assert_eq!(config.client_secret.as_deref(), Some("google-secret"));
+    }
+
+    #[test]
+    fn oauth_provider_configs_wire_compile_time_client_secrets() {
+        let source = include_str!("oauth.rs");
+        let gmail_start = source
+            .find("pub(crate) fn gmail_oauth_config")
+            .expect("gmail_oauth_config should exist");
+        let outlook_start = source
+            .find("pub(crate) fn outlook_oauth_config")
+            .expect("outlook_oauth_config should exist");
+        let dotenv_start = source
+            .find("fn dotenv_lookup_from_str")
+            .expect("dotenv_lookup_from_str should exist");
+        let gmail_section = &source[gmail_start..outlook_start];
+        let outlook_section = &source[outlook_start..dotenv_start];
+
+        assert!(gmail_section.contains(r#"option_env!("GOOGLE_CLIENT_SECRET")"#));
+        assert!(outlook_section.contains(r#"option_env!("MICROSOFT_CLIENT_SECRET")"#));
     }
 
     #[test]
