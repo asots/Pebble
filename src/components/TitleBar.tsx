@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
+import iconUrl from "@/assets/app-icon.png";
 import { isComposeDirty } from "@/stores/compose.store";
 import { useConfirmStore } from "@/stores/confirm.store";
 import i18n from "@/lib/i18n";
@@ -27,6 +28,14 @@ export default function TitleBar() {
       style={{ backgroundColor: "var(--color-titlebar-bg)" }}
     >
       <div data-tauri-drag-region className="flex items-center gap-2 px-3">
+        <img
+          data-tauri-drag-region
+          src={iconUrl}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="h-5 w-5 shrink-0 bg-transparent object-contain"
+        />
         <span
           className="text-sm font-semibold"
           style={{ color: "var(--color-text-primary)" }}
