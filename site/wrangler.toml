@@ -1,8 +1,0 @@
-name = "pebble"
-compatibility_date = "2026-04-27"
-workers_dev = true
-
-[assets]
-directory = "."
-html_handling = "auto-trailing-slash"
-not_found_handling = "none"
