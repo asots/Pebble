@@ -23,6 +23,7 @@ export interface RealtimeStatus {
 const REALTIME_PREFERENCE_KEY = "pebble-realtime-mode";
 const REALTIME_PREFERENCES = new Set<RealtimePreference>(["realtime", "balanced", "battery", "manual"]);
 const NOTIFICATIONS_KEY = "pebble-notifications-enabled";
+const KEEP_RUNNING_BACKGROUND_KEY = "pebble-keep-running-background";
 
 function readRealtimePreference(): RealtimePreference {
   const stored = localStorage.getItem(REALTIME_PREFERENCE_KEY);
@@ -33,6 +34,11 @@ function readRealtimePreference(): RealtimePreference {
 
 export function readNotificationsEnabledPreference(): boolean {
   const stored = localStorage.getItem(NOTIFICATIONS_KEY);
+  return stored === null ? true : stored === "true";
+}
+
+export function readKeepRunningInBackgroundPreference(): boolean {
+  const stored = localStorage.getItem(KEEP_RUNNING_BACKGROUND_KEY);
   return stored === null ? true : stored === "true";
 }
 
@@ -51,6 +57,7 @@ export function realtimePreferenceToPollInterval(mode: RealtimePreference): numb
 
 const initialRealtimeMode = readRealtimePreference();
 const initialNotificationsEnabled = readNotificationsEnabledPreference();
+const initialKeepRunningInBackground = readKeepRunningInBackgroundPreference();
 
 /** Resolve "system" theme to an actual "dark" | "light" value. */
 function resolveTheme(theme: Theme): "dark" | "light" {
@@ -77,6 +84,8 @@ interface UIState {
   realtimeMode: RealtimePreference;
   notificationsEnabled: boolean;
   setNotificationsEnabled: (enabled: boolean) => void;
+  keepRunningInBackground: boolean;
+  setKeepRunningInBackground: (enabled: boolean) => void;
   previousView: ActiveView;
   toggleSidebar: () => void;
   setActiveView: (view: ActiveView) => void;
@@ -114,6 +123,11 @@ export const useUIStore = create<UIState>((set) => ({
   setNotificationsEnabled: (enabled) => {
     localStorage.setItem(NOTIFICATIONS_KEY, String(enabled));
     set({ notificationsEnabled: enabled });
+  },
+  keepRunningInBackground: initialKeepRunningInBackground,
+  setKeepRunningInBackground: (enabled) => {
+    localStorage.setItem(KEEP_RUNNING_BACKGROUND_KEY, String(enabled));
+    set({ keepRunningInBackground: enabled });
   },
   previousView: "inbox",
   toggleSidebar: () =>

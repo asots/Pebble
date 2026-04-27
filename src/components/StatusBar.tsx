@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { listen } from "@tauri-apps/api/event";
-import { AlertCircle, Clock, RefreshCw } from "lucide-react";
+import { AlertCircle, AppWindow, Clock, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUIStore, type RealtimeStatus } from "../stores/ui.store";
 import { useMailStore } from "@/stores/mail.store";
@@ -39,6 +39,8 @@ export default function StatusBar() {
   const realtimeStatusByAccount = useUIStore((s) => s.realtimeStatusByAccount);
   const setRealtimeStatus = useUIStore((s) => s.setRealtimeStatus);
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled);
+  const keepRunningInBackground = useUIStore((s) => s.keepRunningInBackground);
+  const setKeepRunningInBackground = useUIStore((s) => s.setKeepRunningInBackground);
   const activeAccountId = useMailStore((s) => s.activeAccountId);
   const syncMutation = useSyncMutation();
   const queryClient = useQueryClient();
@@ -126,6 +128,9 @@ export default function StatusBar() {
   const pendingRemoteWrites = pendingOpsSummary?.total_active_count ?? 0;
   const failedRemoteWrites = pendingOpsSummary?.failed_count ?? 0;
   const retryingRemoteWrites = pendingOpsSummary?.in_progress_count ?? 0;
+  const backgroundLabel = keepRunningInBackground
+    ? t("status.exitOnClose", "Exit on close")
+    : t("status.keepRunningInBackground", "Keep running in background on close");
   const pendingRemoteText = retryingRemoteWrites > 0
     ? t("status.remoteWritesRetrying", "{{count}} remote writes retrying", { count: retryingRemoteWrites })
     : failedRemoteWrites > 0
@@ -234,6 +239,30 @@ export default function StatusBar() {
       )}
 
       <span className="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setKeepRunningInBackground(!keepRunningInBackground)}
+          aria-label={backgroundLabel}
+          aria-pressed={keepRunningInBackground}
+          title={backgroundLabel}
+          className="inline-flex items-center justify-center"
+          style={{
+            width: "20px",
+            height: "20px",
+            border: "1px solid transparent",
+            borderRadius: "4px",
+            background: keepRunningInBackground
+              ? "color-mix(in srgb, var(--color-accent) 16%, transparent)"
+              : "transparent",
+            color: keepRunningInBackground
+              ? "var(--color-accent)"
+              : "var(--color-text-secondary)",
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          <AppWindow aria-hidden="true" size={13} />
+        </button>
         {notificationsEnabled && (
           <svg aria-hidden="true" focusable="false" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />

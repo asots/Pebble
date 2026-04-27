@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useComposeStore } from "../../src/stores/compose.store";
 import { useMailStore } from "../../src/stores/mail.store";
 import {
+  readKeepRunningInBackgroundPreference,
   readNotificationsEnabledPreference,
   realtimePreferenceToPollInterval,
   useUIStore,
@@ -26,6 +27,7 @@ describe("UIStore", () => {
       pendingRuleDraftText: null,
       showFolderUnreadCount: false,
       notificationsEnabled: true,
+      keepRunningInBackground: true,
     });
     useComposeStore.setState({
       composeMode: null,
@@ -56,6 +58,7 @@ describe("UIStore", () => {
     expect(state.theme).toBe("light");
     expect(state.syncStatus).toBe("idle");
     expect(state.realtimeMode).toBe("realtime");
+    expect(state.keepRunningInBackground).toBe(true);
   });
 
   it("should toggle sidebar", () => {
@@ -241,6 +244,18 @@ describe("UIStore", () => {
     expect(useUIStore.getState().notificationsEnabled).toBe(true);
   });
 
+  it("defaults close-to-background to enabled when the user has no stored preference", () => {
+    localStorage.removeItem("pebble-keep-running-background");
+
+    expect(readKeepRunningInBackgroundPreference()).toBe(true);
+  });
+
+  it("honors an explicit close-to-background opt-out", () => {
+    localStorage.setItem("pebble-keep-running-background", "false");
+
+    expect(readKeepRunningInBackgroundPreference()).toBe(false);
+  });
+
   it("persists desktop notification preference through the UI store", () => {
     useUIStore.getState().setNotificationsEnabled(false);
 
@@ -251,5 +266,17 @@ describe("UIStore", () => {
 
     expect(useUIStore.getState().notificationsEnabled).toBe(true);
     expect(localStorage.getItem("pebble-notifications-enabled")).toBe("true");
+  });
+
+  it("persists close-to-background preference through the UI store", () => {
+    useUIStore.getState().setKeepRunningInBackground(true);
+
+    expect(useUIStore.getState().keepRunningInBackground).toBe(true);
+    expect(localStorage.getItem("pebble-keep-running-background")).toBe("true");
+
+    useUIStore.getState().setKeepRunningInBackground(false);
+
+    expect(useUIStore.getState().keepRunningInBackground).toBe(false);
+    expect(localStorage.getItem("pebble-keep-running-background")).toBe("false");
   });
 });

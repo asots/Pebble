@@ -27,6 +27,11 @@
     "confirm": "确认",
     "send": "发送"
   },
+  "tray": {
+    "show": "显示窗口",
+    "hide": "隐藏窗口",
+    "quit": "退出 Pebble"
+  },
   "sidebar": {
     "inbox": "收件箱",
     "sent": "已发送",
@@ -272,7 +277,9 @@
     "remoteWritesPending": "{{count}} 个远程写入待处理",
     "remoteWritesQueued": "{{count}} 个远程写入已排队",
     "syncNow": "立即同步",
-    "stopSync": "停止同步"
+    "stopSync": "停止同步",
+    "keepRunningInBackground": "关闭时保持后台运行",
+    "exitOnClose": "关闭时退出应用"
   },
   "attachments": {
     "title": "附件",

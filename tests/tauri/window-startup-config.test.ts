@@ -20,4 +20,12 @@ describe("Tauri startup window config", () => {
 
     expect(capability.permissions).toContain("core:window:allow-show");
   });
+
+  it("allows close-request handlers to finish closing the main window", () => {
+    const capabilityPath = resolve(process.cwd(), "src-tauri", "capabilities", "default.json");
+    const capability = JSON.parse(readFileSync(capabilityPath, "utf8"));
+
+    expect(capability.permissions).toContain("core:window:allow-close");
+    expect(capability.permissions).toContain("core:window:allow-destroy");
+  });
 });

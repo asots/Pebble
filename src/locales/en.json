@@ -27,6 +27,11 @@
     "confirm": "Confirm",
     "send": "Send"
   },
+  "tray": {
+    "show": "Show Window",
+    "hide": "Hide Window",
+    "quit": "Quit Pebble"
+  },
   "sidebar": {
     "inbox": "Inbox",
     "sent": "Sent",
@@ -272,7 +277,9 @@
     "remoteWritesPending": "{{count}} remote writes pending",
     "remoteWritesQueued": "{{count}} remote writes queued",
     "syncNow": "Sync now",
-    "stopSync": "Stop sync"
+    "stopSync": "Stop sync",
+    "keepRunningInBackground": "Keep running in background on close",
+    "exitOnClose": "Exit on close"
   },
   "attachments": {
     "title": "Attachments",

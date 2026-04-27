@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
     realtimeStatusByAccount: {},
     setRealtimeStatus: vi.fn(),
     notificationsEnabled: true,
+    keepRunningInBackground: false,
+    setKeepRunningInBackground: vi.fn(),
   },
   mailState: {
     activeAccountId: "account-1" as string | null,

@@ -285,6 +285,10 @@ export async function setNotificationsEnabled(enabled: boolean): Promise<void> {
   return invoke<void>("set_notifications_enabled", { enabled });
 }
 
+export async function setTrayMenuLabels(showLabel: string, hideLabel: string, quitLabel: string): Promise<void> {
+  return invoke<void>("set_tray_menu_labels", { showLabel, hideLabel, quitLabel });
+}
+
 export async function stopSync(accountId: string): Promise<void> {
   return invoke<void>("stop_sync", { accountId });
 }

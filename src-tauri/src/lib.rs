@@ -8,10 +8,17 @@ use state::AppState;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Instant;
-use tauri::{Emitter, Manager};
+use tauri::{
+    menu::{Menu, MenuBuilder},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager, Runtime,
+};
 use tracing_subscriber::prelude::*;
 
 static LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
+const TRAY_SHOW_ID: &str = "tray-show";
+const TRAY_HIDE_ID: &str = "tray-hide";
+const TRAY_QUIT_ID: &str = "tray-quit";
 
 #[derive(Debug, PartialEq, Eq)]
 struct StartupPhaseTiming {
@@ -60,6 +67,84 @@ fn get_index_path(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error
     Ok(index_dir)
 }
 
+fn restore_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn hide_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+}
+
+fn build_tray_menu<R: Runtime, M: Manager<R>>(
+    manager: &M,
+    show_label: &str,
+    hide_label: &str,
+    quit_label: &str,
+) -> tauri::Result<Menu<R>> {
+    MenuBuilder::new(manager)
+        .text(TRAY_SHOW_ID, show_label)
+        .text(TRAY_HIDE_ID, hide_label)
+        .separator()
+        .text(TRAY_QUIT_ID, quit_label)
+        .build()
+}
+
+fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let menu = build_tray_menu(app, "Show Window", "Hide Window", "Quit Pebble")?;
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or("default window icon is not configured")?;
+
+    TrayIconBuilder::with_id("main")
+        .icon(icon)
+        .menu(&menu)
+        .tooltip("Pebble")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            TRAY_SHOW_ID => restore_main_window(app),
+            TRAY_HIDE_ID => hide_main_window(app),
+            TRAY_QUIT_ID => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| match event {
+            TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            }
+            | TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                ..
+            } => restore_main_window(tray.app_handle()),
+            _ => {}
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn set_tray_menu_labels(
+    app: AppHandle,
+    show_label: String,
+    hide_label: String,
+    quit_label: String,
+) -> Result<(), String> {
+    let menu =
+        build_tray_menu(&app, &show_label, &hide_label, &quit_label).map_err(|e| e.to_string())?;
+    let tray = app
+        .tray_by_id("main")
+        .ok_or_else(|| "tray icon is not initialized".to_string())?;
+    tray.set_menu(Some(menu)).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -93,6 +178,9 @@ pub fn run() {
             let startup_start = Instant::now();
             let mut startup_phase = startup_start;
             tracing::info!("[startup] tauri setup started");
+            if let Err(e) = setup_tray(app) {
+                tracing::warn!("Failed to create system tray icon: {e}");
+            }
 
             let db_path = get_db_path(app)?;
             tracing::info!("Database path: {}", db_path.display());
@@ -242,6 +330,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            set_tray_menu_labels,
             commands::health::health_check,
             commands::health::check_for_update,
             commands::health::open_external_url,

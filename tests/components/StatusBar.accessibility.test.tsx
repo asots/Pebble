@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => ({
       }
     >,
     setRealtimeStatus: vi.fn(),
+    notificationsEnabled: true,
+    keepRunningInBackground: false,
+    setKeepRunningInBackground: vi.fn((enabled: boolean) => {
+      mocks.uiState.keepRunningInBackground = enabled;
+    }),
   },
   mailState: {
     activeAccountId: "account-1" as string | null,
@@ -47,6 +52,8 @@ vi.mock("react-i18next", () => ({
         "status.remoteWritesPending": `${mocks.pendingOpsSummary.total_active_count} remote writes pending`,
         "status.remoteWritesRetrying": `${mocks.pendingOpsSummary.in_progress_count} remote writes retrying`,
         "status.realtimeConnected": "Realtime connected",
+        "status.keepRunningInBackground": "Keep running in background on close",
+        "status.exitOnClose": "Exit on close",
       };
       return labels[key] ?? fallback ?? key;
     },
@@ -97,6 +104,8 @@ describe("StatusBar accessibility", () => {
     mocks.uiState.networkStatus = "online";
     mocks.uiState.lastMailError = null;
     mocks.uiState.realtimeStatusByAccount = {};
+    mocks.uiState.notificationsEnabled = true;
+    mocks.uiState.keepRunningInBackground = false;
     mocks.mailState.activeAccountId = "account-1";
     mocks.pendingOpsSummary.total_active_count = 0;
     mocks.pendingOpsSummary.failed_count = 0;
@@ -141,5 +150,16 @@ describe("StatusBar accessibility", () => {
     const status = screen.getByRole("status", { name: /realtime connected/i });
     expect(status.getAttribute("aria-live")).toBe("polite");
     expect(status.getAttribute("aria-atomic")).toBe("true");
+  });
+
+  it("exposes the close-to-background toggle as an icon button", () => {
+    render(<StatusBar />);
+
+    const toggle = screen.getByRole("button", { name: "Keep running in background on close" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(toggle);
+
+    expect(mocks.uiState.setKeepRunningInBackground).toHaveBeenCalledWith(true);
   });
 });

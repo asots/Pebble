@@ -18,6 +18,8 @@ import { createLazyViewPreloader, scheduleLazyViewPreload } from "./lazyViewPrel
 import { useRealtimePreferenceSync } from "./useRealtimePreferenceSync";
 import { useRealtimeSyncTriggers } from "./useRealtimeSyncTriggers";
 import { useNotificationOpenNavigation } from "./useNotificationOpenNavigation";
+import { useCloseToBackground } from "./useCloseToBackground";
+import { useTrayI18n } from "./useTrayI18n";
 
 const loadSettingsView = () => import("../features/settings/SettingsView");
 const loadComposeView = () => import("../features/compose/ComposeView");
@@ -69,6 +71,8 @@ export default function Layout() {
   useRealtimePreferenceSync();
   useRealtimeSyncTriggers();
   useNotificationOpenNavigation();
+  useCloseToBackground();
+  useTrayI18n();
 
   // Re-register commands when language changes
   useEffect(() => {

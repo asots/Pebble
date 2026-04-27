@@ -8,6 +8,18 @@ function readLocale(locale: string) {
 }
 
 describe("locale files", () => {
+  it("translates tray menu labels in English and Chinese", () => {
+    const en = readLocale("en");
+    const zh = readLocale("zh");
+
+    expect(en.tray.show).toBe("Show Window");
+    expect(en.tray.hide).toBe("Hide Window");
+    expect(en.tray.quit).toBe("Quit Pebble");
+    expect(zh.tray.show).toBe("显示窗口");
+    expect(zh.tray.hide).toBe("隐藏窗口");
+    expect(zh.tray.quit).toBe("退出 Pebble");
+  });
+
   it("translates folder count settings in English and Chinese", () => {
     const en = readLocale("en");
     const zh = readLocale("zh");
