@@ -30,8 +30,11 @@ describe("macOS release configuration", () => {
     const indexingSource = readFileSync(
       resolve(process.cwd(), "src-tauri", "src", "commands", "indexing.rs"),
       "utf8",
+    ).replace(/\r\n/g, "\n");
+    const eventsSource = readFileSync(resolve(process.cwd(), "src-tauri", "src", "events.rs"), "utf8").replace(
+      /\r\n/g,
+      "\n",
     );
-    const eventsSource = readFileSync(resolve(process.cwd(), "src-tauri", "src", "events.rs"), "utf8");
 
     expect(indexingSource).toContain("#[cfg(any(windows, test))]\nfn notification_open_payload");
     expect(indexingSource).toContain("#[cfg(windows)]\nfn open_message_from_notification");
