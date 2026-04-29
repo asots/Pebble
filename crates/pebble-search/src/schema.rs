@@ -2,10 +2,10 @@ use tantivy::schema::{
     DateOptions, Field, IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions,
     INDEXED, STORED, STRING,
 };
-use tantivy::tokenizer::{NgramTokenizer, TextAnalyzer, Token, TokenStream, Tokenizer};
+use tantivy::tokenizer::{LowerCaser, NgramTokenizer, TextAnalyzer, Token, TokenStream, Tokenizer};
 use tantivy::{DateTimePrecision, Index};
 
-const NGRAM_TOKENIZER: &str = "ngram3";
+pub(crate) const NGRAM_TOKENIZER: &str = "ngram3_lower";
 pub(crate) const BODY_TOKENIZER: &str = "body_cjk";
 
 /// Tokenizer that uses standard word splitting for Latin text and emits
@@ -147,7 +147,9 @@ pub fn build_schema() -> SearchSchema {
 
     let message_id = builder.add_text_field("message_id", STRING | STORED);
 
-    // N-gram tokenizer for short fields where substring matching matters
+    // N-gram tokenizer for short fields where substring matching matters.
+    // The registered analyzer lowercases Latin tokens so searches do not
+    // depend on the original subject/sender casing.
     let ngram_stored = TextOptions::default()
         .set_indexing_options(
             TextFieldIndexing::default()
@@ -205,7 +207,9 @@ pub fn build_schema() -> SearchSchema {
 
 /// Register custom tokenizers on the index. Must be called after index creation.
 pub fn register_tokenizers(index: &Index) {
-    let ngram = TextAnalyzer::builder(NgramTokenizer::new(2, 3, false).unwrap()).build();
+    let ngram = TextAnalyzer::builder(NgramTokenizer::new(2, 3, false).unwrap())
+        .filter(LowerCaser)
+        .build();
     index.tokenizers().register(NGRAM_TOKENIZER, ngram);
 
     let body = TextAnalyzer::builder(CjkAwareTokenizer).build();

@@ -15,6 +15,47 @@ use schema::{build_schema, SearchSchema};
 
 const SNIPPET_MAX_LEN: usize = 150;
 
+fn schema_text_field_matches(
+    existing_schema: &Schema,
+    field_name: &str,
+    tokenizer: &str,
+    must_be_stored: bool,
+) -> bool {
+    let Ok(field) = existing_schema.get_field(field_name) else {
+        return false;
+    };
+
+    let entry = existing_schema.get_field_entry(field);
+    if must_be_stored && !entry.is_stored() {
+        return false;
+    }
+
+    match entry.field_type() {
+        tantivy::schema::FieldType::Str(text_opts) => text_opts
+            .get_indexing_options()
+            .is_some_and(|idx_opts| idx_opts.tokenizer() == tokenizer),
+        _ => false,
+    }
+}
+
+fn schema_needs_rebuild(existing_schema: &Schema) -> bool {
+    !schema_text_field_matches(existing_schema, "body_text", schema::BODY_TOKENIZER, true)
+        || !schema_text_field_matches(existing_schema, "subject", schema::NGRAM_TOKENIZER, true)
+        || !schema_text_field_matches(
+            existing_schema,
+            "from_address",
+            schema::NGRAM_TOKENIZER,
+            true,
+        )
+        || !schema_text_field_matches(existing_schema, "from_name", schema::NGRAM_TOKENIZER, true)
+        || !schema_text_field_matches(
+            existing_schema,
+            "to_addresses",
+            schema::NGRAM_TOKENIZER,
+            false,
+        )
+}
+
 fn make_snippet(doc: &TantivyDocument, field: tantivy::schema::Field) -> String {
     let body = doc.get_first(field).and_then(|v| v.as_str()).unwrap_or("");
     if body.len() > SNIPPET_MAX_LEN {
@@ -64,30 +105,10 @@ impl TantivySearch {
                 Ok(idx) => {
                     schema::register_tokenizers(&idx);
 
-                    // Check if schema needs rebuild: body_text must be stored and
-                    // use the default tokenizer (previously used n-gram which causes bloat).
-                    let existing_schema = idx.schema();
-                    let needs_rebuild = match existing_schema.get_field("body_text") {
-                        Ok(f) => {
-                            let entry = existing_schema.get_field_entry(f);
-                            if !entry.is_stored() {
-                                true
-                            } else {
-                                match entry.field_type() {
-                                    tantivy::schema::FieldType::Str(text_opts) => {
-                                        match text_opts.get_indexing_options() {
-                                            Some(idx_opts) => {
-                                                idx_opts.tokenizer() != schema::BODY_TOKENIZER
-                                            }
-                                            None => true,
-                                        }
-                                    }
-                                    _ => true,
-                                }
-                            }
-                        }
-                        Err(_) => true,
-                    };
+                    // Rebuild when tokenizer schema changed. Existing tokens were
+                    // produced by the old analyzer, so swapping the runtime
+                    // analyzer alone is not enough for already indexed mail.
+                    let needs_rebuild = schema_needs_rebuild(&idx.schema());
 
                     if needs_rebuild {
                         tracing::info!("Search index schema outdated, rebuilding...");
@@ -572,6 +593,98 @@ mod tests {
         let hits = engine.search("Invoice", 10).unwrap();
         assert!(!hits.is_empty(), "expected at least one hit");
         assert_eq!(hits[0].message_id, "msg-1");
+    }
+
+    #[test]
+    fn test_subject_search_is_case_insensitive() {
+        let engine = TantivySearch::open_in_memory().unwrap();
+        let msg = make_test_message(
+            "msg-case-subject",
+            "Invoice from Acme Corp",
+            "Please find attached invoice.",
+            "billing@acme.com",
+        );
+        engine.index_message(&msg, &["inbox".to_string()]).unwrap();
+        engine.commit().unwrap();
+
+        let general_hits = engine.search("invoice", 10).unwrap();
+        assert_eq!(general_hits.len(), 1);
+        assert_eq!(general_hits[0].message_id, "msg-case-subject");
+
+        let subject_hits = engine
+            .advanced_search(AdvancedSearchParams {
+                text: None,
+                from: None,
+                to: None,
+                subject: Some("invoice"),
+                date_from: None,
+                date_to: None,
+                has_attachment: None,
+                folder_id: None,
+                limit: 10,
+            })
+            .unwrap();
+        assert_eq!(subject_hits.len(), 1);
+        assert_eq!(subject_hits[0].message_id, "msg-case-subject");
+    }
+
+    #[test]
+    fn test_old_short_field_tokenizer_schema_triggers_reindex() {
+        let unique = format!(
+            "pebble-search-old-tokenizer-{}-{}",
+            std::process::id(),
+            pebble_core::new_id()
+        );
+        let index_dir = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&index_dir).unwrap();
+
+        let mut builder = Schema::builder();
+        let old_ngram_stored = tantivy::schema::TextOptions::default()
+            .set_indexing_options(
+                tantivy::schema::TextFieldIndexing::default()
+                    .set_tokenizer("ngram3")
+                    .set_index_option(tantivy::schema::IndexRecordOption::WithFreqsAndPositions),
+            )
+            .set_stored();
+        let old_ngram_only = tantivy::schema::TextOptions::default().set_indexing_options(
+            tantivy::schema::TextFieldIndexing::default()
+                .set_tokenizer("ngram3")
+                .set_index_option(tantivy::schema::IndexRecordOption::WithFreqsAndPositions),
+        );
+        let body_stored = tantivy::schema::TextOptions::default()
+            .set_indexing_options(
+                tantivy::schema::TextFieldIndexing::default()
+                    .set_tokenizer(schema::BODY_TOKENIZER)
+                    .set_index_option(tantivy::schema::IndexRecordOption::WithFreqsAndPositions),
+            )
+            .set_stored();
+        builder.add_text_field(
+            "message_id",
+            tantivy::schema::STRING | tantivy::schema::STORED,
+        );
+        builder.add_text_field("subject", old_ngram_stored.clone());
+        builder.add_text_field("body_text", body_stored);
+        builder.add_text_field("from_address", old_ngram_stored.clone());
+        builder.add_text_field("from_name", old_ngram_stored);
+        builder.add_text_field("to_addresses", old_ngram_only);
+        builder.add_date_field(
+            "date",
+            tantivy::schema::DateOptions::from(tantivy::schema::INDEXED | tantivy::schema::STORED)
+                .set_precision(tantivy::DateTimePrecision::Seconds),
+        );
+        builder.add_text_field("folder_id", tantivy::schema::STRING);
+        builder.add_text_field("account_id", tantivy::schema::STRING);
+        builder.add_text_field("has_attachment", tantivy::schema::STRING);
+
+        Index::create_in_dir(&index_dir, builder.build()).unwrap();
+
+        let engine = TantivySearch::open(&index_dir).unwrap();
+        assert!(
+            engine.needs_reindex(),
+            "old case-sensitive short-field tokenizer should force a rebuild"
+        );
+
+        std::fs::remove_dir_all(&index_dir).unwrap();
     }
 
     #[test]
