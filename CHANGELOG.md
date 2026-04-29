@@ -6,8 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Added unsigned macOS app and DMG build scripts, current-platform desktop build routing, macOS CI packaging, and tagged release DMG artifact uploads.
+- Added the macOS `.icns` bundle icon required by Tauri's macOS application bundle.
+
 ### Fixed
 
+- Enabled the native macOS Keychain backend for local credential encryption.
 - Made search over subject, sender, and recipient short fields case-insensitive for Latin text, and trigger a search index rebuild for older case-sensitive indexes.
 
 ## [0.0.2] - 2026-04-29

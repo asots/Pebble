@@ -8,7 +8,9 @@
     "build:frontend": "tsc && vite build",
     "preview": "vite preview",
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "node scripts/build-tauri.mjs",
+    "build:windows": "tauri build --bundles nsis",
+    "build:macos": "tauri build --bundles app,dmg",
     "test": "vitest run",
     "test:watch": "vitest"
   },

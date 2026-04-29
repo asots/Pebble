@@ -10,8 +10,17 @@ on:
 
 jobs:
   test:
-    name: Test and Package
-    runs-on: windows-latest
+    name: Test and Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            build_script: build:windows
+          - os: macos-15
+            build_script: build:macos
 
     steps:
       - name: Checkout
@@ -54,5 +63,5 @@ jobs:
       - name: Build frontend
         run: pnpm build:frontend
 
-      - name: Build Windows installer
-        run: pnpm build
+      - name: Build desktop package
+        run: pnpm ${{ matrix.build_script }}

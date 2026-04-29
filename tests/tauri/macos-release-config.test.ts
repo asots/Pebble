@@ -1,0 +1,68 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { describe, expect, it } from "vitest";
+
+describe("macOS release configuration", () => {
+  it("defines explicit desktop build scripts for Windows and macOS bundles", () => {
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"));
+
+    expect(packageJson.scripts["build:windows"]).toBeTypeOf("string");
+    expect(packageJson.scripts["build:macos"]).toBeTypeOf("string");
+    expect(packageJson.scripts["build:windows"]).toContain("--bundles nsis");
+    expect(packageJson.scripts["build:macos"]).toContain("--bundles app,dmg");
+  });
+
+  it("routes the generic build command to platform-specific bundles", async () => {
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"));
+    const buildScriptPath = resolve(process.cwd(), "scripts", "build-tauri.mjs");
+    const buildScript = await import(pathToFileURL(buildScriptPath).href);
+
+    expect(packageJson.scripts.build).toBe("node scripts/build-tauri.mjs");
+    expect(buildScript.bundleTargetsForPlatform("win32")).toBe("nsis");
+    expect(buildScript.bundleTargetsForPlatform("darwin")).toBe("app,dmg");
+    expect(() => buildScript.bundleTargetsForPlatform("linux")).toThrow("Unsupported desktop package platform");
+  });
+
+  it("includes a macOS icon in the Tauri bundle config", () => {
+    const config = JSON.parse(
+      readFileSync(resolve(process.cwd(), "src-tauri", "tauri.conf.json"), "utf8"),
+    );
+
+    expect(config.bundle.icon).toContain("icons/icon.icns");
+    expect(existsSync(resolve(process.cwd(), "src-tauri", "icons", "icon.icns"))).toBe(true);
+  });
+
+  it("enables native credential storage backends for Windows and macOS", () => {
+    const cargoToml = readFileSync(resolve(process.cwd(), "Cargo.toml"), "utf8");
+
+    expect(cargoToml).toContain('features = ["apple-native", "windows-native"]');
+  });
+
+  it("runs package builds on Windows and macOS in CI", () => {
+    const ciWorkflow = readFileSync(resolve(process.cwd(), ".github", "workflows", "ci.yml"), "utf8");
+
+    expect(ciWorkflow).toContain("windows-latest");
+    expect(ciWorkflow).toContain("macos-15");
+    expect(ciWorkflow).toContain("pnpm ${{ matrix.build_script }}");
+    expect(ciWorkflow).toContain("build:windows");
+    expect(ciWorkflow).toContain("build:macos");
+  });
+
+  it("uploads unsigned macOS DMG artifacts during tagged releases", () => {
+    const releaseWorkflow = readFileSync(
+      resolve(process.cwd(), ".github", "workflows", "release.yml"),
+      "utf8",
+    );
+
+    expect(releaseWorkflow).toContain("macOS Release");
+    expect(releaseWorkflow).toContain("runs-on: ${{ matrix.os }}");
+    expect(releaseWorkflow).toContain("macos-15");
+    expect(releaseWorkflow).toContain("macos-15-intel");
+    expect(releaseWorkflow).toContain("aarch64-apple-darwin");
+    expect(releaseWorkflow).toContain("x86_64-apple-darwin");
+    expect(releaseWorkflow).toContain("pnpm tauri build --target ${{ matrix.target }} --bundles app,dmg");
+    expect(releaseWorkflow).toContain("target/${{ matrix.target }}/release/bundle/dmg");
+    expect(releaseWorkflow).toContain("pebble-macos-${{ matrix.arch }}-${{ env.PEBBLE_VERSION }}");
+  });
+});
