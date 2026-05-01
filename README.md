@@ -125,6 +125,11 @@ pnpm build:macos
 
 Desktop bundles are written under `target/release/` and `target/release/bundle/`.
 macOS bundles are unsigned unless you provide your own signing setup.
+After copying an unsigned macOS build to `/Applications`, run the following command before opening it:
+
+```bash
+sudo xattr -cr /Applications/Pebble.app
+```
 
 ## OAuth Configuration
 

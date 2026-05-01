@@ -125,6 +125,11 @@ pnpm build:macos
 
 桌面端构建产物会输出到 `target/release/` 和 `target/release/bundle/`。
 macOS 构建产物默认不签名，除非你自行配置签名流程。
+将未签名的 macOS 构建复制到 `/Applications` 后，请先执行下面的命令再打开应用：
+
+```bash
+sudo xattr -cr /Applications/Pebble.app
+```
 
 ## OAuth 配置
 
