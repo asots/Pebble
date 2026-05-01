@@ -6,6 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-05-01
+
+### Added
+
+- Added global mail proxy settings for account connectivity.
+- Added OAuth account proxy controls so Google and Microsoft account flows can use account-specific proxy settings.
+- Added account color presets and automatic default colors for newly added accounts.
+- Added account color markers in the all-accounts message list when multiple accounts are visible.
+- Added first-launch language detection: Chinese system locales start in Chinese, and other locales start in English.
+
+### Changed
+
+- Reorganized proxy settings into clearer global and per-account sections.
+- Refined the compose editor layout with a single compact toolbar, a full-height editor surface, and consistent rich text, Markdown, and HTML mode controls.
+- Replies now open with a clean editable reply area while the original message is shown as a collapsed read-only quote; the quote is still appended when the reply is sent.
+- Unified sidebar system folder ordering across all-accounts and single-account views so folders no longer jump when switching accounts.
+
+### Fixed
+
+- Persisted automatically assigned default account colors.
+- Preserved existing account colors when restoring older WebDAV backups that do not contain color metadata.
+- Fixed OAuth account editing so disabled/custom proxy mode is preserved correctly.
+- Prevented account proxy settings from temporarily losing account metadata while settings are loading.
+- Hid account color markers when a single account is selected or only one account exists.
+
+### Documentation
+
+- Documented the macOS quarantine workaround command `sudo xattr -cr` for users who need to run unsigned builds.
+
 ## [0.0.3] - 2026-04-30
 
 ### Added
@@ -82,7 +111,8 @@ This release includes:
 - Windows installers are not code-signed yet, so Windows SmartScreen may show a warning.
 - Outlook support is still experimental and depends on Microsoft Graph permissions configured by the user.
 
-[Unreleased]: https://github.com/QingJ01/Pebble/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/QingJ01/Pebble/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/QingJ01/Pebble/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/QingJ01/Pebble/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/QingJ01/Pebble/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/QingJ01/Pebble/releases/tag/v0.0.1

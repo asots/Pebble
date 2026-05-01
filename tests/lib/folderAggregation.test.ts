@@ -5,6 +5,7 @@ import {
   buildAllAccountsFolders,
   folderIdsForSelection,
   roleFromAllAccountsFolderId,
+  sortFoldersForSidebar,
   unreadCountForFolder,
 } from "../../src/lib/folderAggregation";
 
@@ -74,5 +75,27 @@ describe("folder aggregation", () => {
         "a1-sent": 7,
       }),
     ).toBe(5);
+  });
+
+  it("sorts single-account system folders in the same stable sidebar order", () => {
+    const folders = [
+      { ...folder("drafts", "a1", "drafts"), sort_order: 1 },
+      { ...folder("spam", "a1", "spam"), sort_order: 2 },
+      { ...folder("inbox", "a1", "inbox"), sort_order: 3 },
+      { ...folder("trash", "a1", "trash"), sort_order: 4 },
+      { ...folder("archive", "a1", "archive"), sort_order: 5 },
+      { ...folder("sent", "a1", "sent"), sort_order: 6 },
+      { ...folder("project", "a1", null, "Project"), sort_order: 0 },
+    ];
+
+    expect(sortFoldersForSidebar(folders).map((f) => f.id)).toEqual([
+      "inbox",
+      "sent",
+      "archive",
+      "drafts",
+      "trash",
+      "spam",
+      "project",
+    ]);
   });
 });

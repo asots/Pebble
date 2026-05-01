@@ -23,6 +23,7 @@ import { useFolderUnreadCountsForAccounts } from "../hooks/queries/useFolderUnre
 import {
   ALL_ACCOUNTS_SELECT_VALUE,
   buildAllAccountsFolders,
+  sortFoldersForSidebar,
   unreadCountForFolder,
 } from "../lib/folderAggregation";
 import type { Account, Folder as FolderType } from "../lib/api";
@@ -47,9 +48,9 @@ function folderIcon(role: FolderType["role"]): React.ReactNode {
 const DEFAULT_FOLDERS: { role: string; labelKey: string }[] = [
   { role: "inbox", labelKey: "sidebar.inbox" },
   { role: "sent", labelKey: "sidebar.sent" },
+  { role: "archive", labelKey: "sidebar.archive" },
   { role: "drafts", labelKey: "sidebar.drafts" },
   { role: "trash", labelKey: "sidebar.trash" },
-  { role: "archive", labelKey: "sidebar.archive" },
   { role: "spam", labelKey: "sidebar.spam" },
 ];
 
@@ -89,25 +90,10 @@ export default function Sidebar() {
   );
   const hasRealFolders = displayedFolders.length > 0;
 
-  // Deduplicate folders by role, insert archive after sent
+  // Keep system folders stable across all-account and single-account views.
   const dedupedFolders = useMemo(() => {
-    if (allAccountsMode) return displayedFolders;
-    const seenRoles = new Set<string>();
-    const result = displayedFolders.filter((f) => {
-      if (f.role === "archive") return false; // inserted manually after sent
-      if (!f.role) return true;
-      if (seenRoles.has(f.role)) return false;
-      seenRoles.add(f.role);
-      return true;
-    });
-    // Insert archive folder after "sent"
-    const archiveFolder = displayedFolders.find((f) => f.role === "archive");
-    if (archiveFolder) {
-      const sentIdx = result.findIndex((f) => f.role === "sent");
-      result.splice(sentIdx >= 0 ? sentIdx + 1 : result.length, 0, archiveFolder);
-    }
-    return result;
-  }, [allAccountsMode, displayedFolders]);
+    return sortFoldersForSidebar(displayedFolders);
+  }, [displayedFolders]);
 
   // Auto-select the only account. With multiple accounts, null means the
   // combined "all accounts" mailbox.
