@@ -184,11 +184,12 @@ export async function updateAccount(
   smtpSecurity?: ConnectionSecurity,
   proxyHost?: string,
   proxyPort?: number,
+  accountColor?: string,
 ): Promise<void> {
   return invoke<void>("update_account", {
     accountId, email, displayName, password,
     imapHost, imapPort, smtpHost, smtpPort, imapSecurity, smtpSecurity,
-    proxyHost, proxyPort,
+    proxyHost, proxyPort, accountColor,
   });
 }
 

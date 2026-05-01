@@ -681,6 +681,7 @@ pub async fn complete_oauth_flow(
         id: new_id(),
         email: final_email,
         display_name: final_name,
+        color: None,
         provider: provider_type(&provider)?,
         created_at: now,
         updated_at: now,

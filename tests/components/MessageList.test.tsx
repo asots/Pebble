@@ -46,7 +46,34 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 vi.mock("../../src/hooks/queries", () => ({
-  useAccountsQuery: () => ({ data: [{ id: "account-1" }] }),
+  useAccountsQuery: () => ({
+    data: [
+      {
+        id: "account-1",
+        email: "one@example.com",
+        display_name: "One",
+        color: "#22c55e",
+      },
+      {
+        id: "account-2",
+        email: "two@example.com",
+        display_name: "Two",
+        color: "#3b82f6",
+      },
+      {
+        id: "account-3",
+        email: "three@example.com",
+        display_name: "Three",
+        color: null,
+      },
+      {
+        id: "account-4",
+        email: "four@example.com",
+        display_name: "Four",
+        color: null,
+      },
+    ],
+  }),
   useFoldersForAccountsQuery: () => ({ data: mocks.folders }),
 }));
 
@@ -69,8 +96,18 @@ vi.mock("../../src/stores/confirm.store", () => ({
 }));
 
 vi.mock("../../src/components/MessageItem", () => ({
-  default: ({ message, folderRole }: { message: MessageSummary; folderRole?: string | null }) => (
-    <div data-testid={`message-${message.id}`} data-folder-role={folderRole ?? ""}>
+  default: ({ message, folderRole, accountColor, accountLabel }: {
+    message: MessageSummary;
+    folderRole?: string | null;
+    accountColor?: string;
+    accountLabel?: string;
+  }) => (
+    <div
+      data-testid={`message-${message.id}`}
+      data-folder-role={folderRole ?? ""}
+      data-account-color={accountColor ?? ""}
+      data-account-label={accountLabel ?? ""}
+    >
       {message.subject}
     </div>
   ),
@@ -183,6 +220,62 @@ describe("MessageList", () => {
 
     expect(listbox.className).toContain("scroll-region");
     expect(listbox.className).toContain("message-list-scroll");
+  });
+
+  it("passes account color metadata to message items", () => {
+    const message = { ...makeMessage("m-1"), account_id: "account-2" };
+
+    render(
+      <MessageList
+        messages={[message]}
+        selectedMessageId={null}
+        onSelectMessage={vi.fn()}
+        loading={false}
+      />,
+    );
+
+    const row = screen.getByTestId("message-m-1");
+
+    expect(row.getAttribute("data-account-color")).toBe("#3b82f6");
+    expect(row.getAttribute("data-account-label")).toBe("Two <two@example.com>");
+  });
+
+  it("derives a stable account color when the account has no saved color", () => {
+    const message = { ...makeMessage("m-1"), account_id: "missing-account" };
+
+    render(
+      <MessageList
+        messages={[message]}
+        selectedMessageId={null}
+        onSelectMessage={vi.fn()}
+        loading={false}
+      />,
+    );
+
+    const color = screen.getByTestId("message-m-1").getAttribute("data-account-color");
+
+    expect(color).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it("uses different default colors for known accounts without saved colors", () => {
+    render(
+      <MessageList
+        messages={[
+          { ...makeMessage("m-1"), account_id: "account-3" },
+          { ...makeMessage("m-2"), account_id: "account-4" },
+        ]}
+        selectedMessageId={null}
+        onSelectMessage={vi.fn()}
+        loading={false}
+      />,
+    );
+
+    const firstColor = screen.getByTestId("message-m-1").getAttribute("data-account-color");
+    const secondColor = screen.getByTestId("message-m-2").getAttribute("data-account-color");
+
+    expect(firstColor).toMatch(/^#[0-9a-f]{6}$/);
+    expect(secondColor).toMatch(/^#[0-9a-f]{6}$/);
+    expect(firstColor).not.toBe(secondColor);
   });
 
   it("refreshes derived queries after a successful batch star action", async () => {

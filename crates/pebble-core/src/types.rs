@@ -6,6 +6,7 @@ pub struct Account {
     pub id: String,
     pub email: String,
     pub display_name: String,
+    pub color: Option<String>,
     pub provider: ProviderType,
     pub created_at: i64,
     pub updated_at: i64,

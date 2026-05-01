@@ -199,4 +199,23 @@ describe("MessageItem", () => {
 
     expect(onToggleBatchSelect).toHaveBeenCalledWith("message-1");
   });
+
+  it("shows the source account color marker when an account color is provided", () => {
+    render(
+      <MessageItem
+        message={makeMessage()}
+        isSelected={false}
+        onClick={vi.fn()}
+        {...({
+          accountColor: "#22c55e",
+          accountLabel: "Work <work@example.com>",
+        } as Record<string, unknown>)}
+      />,
+    );
+
+    const marker = screen.getByTitle("Work <work@example.com>");
+
+    expect(marker.getAttribute("aria-label")).toBe("Work <work@example.com>");
+    expect(marker.style.backgroundColor).toBe("rgb(34, 197, 94)");
+  });
 });

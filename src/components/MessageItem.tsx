@@ -19,6 +19,8 @@ interface Props {
   onToggleBatchSelect?: (messageId: string) => void;
   spamFolderId?: string;
   folderRole?: Folder["role"];
+  accountColor?: string;
+  accountLabel?: string;
 }
 
 function formatDate(timestamp: number): string {
@@ -36,7 +38,7 @@ function formatDate(timestamp: number): string {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function MessageItem({ message, labels = [], isSelected, onClick, onToggleStar, batchMode, batchSelected, onToggleBatchSelect, spamFolderId, folderRole }: Props) {
+function MessageItem({ message, labels = [], isSelected, onClick, onToggleStar, batchMode, batchSelected, onToggleBatchSelect, spamFolderId, folderRole, accountColor, accountLabel }: Props) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [showActions, setShowActions] = useState(false);
@@ -92,6 +94,21 @@ function MessageItem({ message, labels = [], isSelected, onClick, onToggleStar, 
         }
       }}
     >
+      {accountColor && (
+        <span
+          aria-label={accountLabel}
+          title={accountLabel}
+          style={{
+            position: "absolute",
+            left: 0,
+            top: "10px",
+            bottom: "10px",
+            width: "3px",
+            borderRadius: "0 3px 3px 0",
+            backgroundColor: accountColor,
+          }}
+        />
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2px" }}>
         {batchMode && (
           <input

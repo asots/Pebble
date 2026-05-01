@@ -32,6 +32,7 @@ vi.mock("../../../src/hooks/queries", () => ({
         email: "user@example.com",
         display_name: "User",
         provider: "gmail",
+        color: "#22c55e",
         created_at: 1,
         updated_at: 1,
       },
@@ -106,8 +107,82 @@ describe("AccountsTab OAuth proxy", () => {
     fireEvent.click(screen.getByRole("button", { name: "common.save" }));
 
     await waitFor(() => {
-      expect(updateAccount).toHaveBeenCalledWith("account-1", "user@example.com", "User");
+      expect(updateAccount).toHaveBeenCalledWith(
+        "account-1",
+        "user@example.com",
+        "User",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "#22c55e",
+      );
     });
     expect(updateOAuthAccountProxy).toHaveBeenCalledWith("account-1", "10.0.0.2", 1080);
+  });
+
+  it("saves a custom account color from the edit dialog", async () => {
+    render(<AccountsTab />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit account" }));
+
+    const colorInput = await screen.findByLabelText("Account color");
+    expect((colorInput as HTMLInputElement).value).toBe("#22c55e");
+
+    fireEvent.change(colorInput, {
+      target: { value: "#f97316" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+
+    await waitFor(() => {
+      expect(updateAccount).toHaveBeenCalledWith(
+        "account-1",
+        "user@example.com",
+        "User",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "#f97316",
+      );
+    });
+  });
+
+  it("offers built-in color presets in the edit dialog", async () => {
+    render(<AccountsTab />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit account" }));
+
+    const preset = await screen.findByRole("button", { name: "Use color #0ea5e9" });
+    fireEvent.click(preset);
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+
+    await waitFor(() => {
+      expect(updateAccount).toHaveBeenCalledWith(
+        "account-1",
+        "user@example.com",
+        "User",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "#0ea5e9",
+      );
+    });
   });
 });

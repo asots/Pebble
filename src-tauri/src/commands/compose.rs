@@ -428,6 +428,7 @@ mod tests {
             id: "account-1".to_string(),
             email: "sender@example.com".to_string(),
             display_name: "Sender".to_string(),
+            color: None,
             provider: ProviderType::Imap,
             created_at: now_timestamp(),
             updated_at: now_timestamp(),

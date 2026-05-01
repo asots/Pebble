@@ -88,6 +88,8 @@ pub struct AccountBackup {
     pub id: String,
     pub email: String,
     pub display_name: String,
+    #[serde(default)]
+    pub color: Option<String>,
     pub provider: pebble_core::ProviderType,
 }
 
@@ -229,6 +231,7 @@ impl Store {
                 id: a.id,
                 email: a.email,
                 display_name: a.display_name,
+                color: a.color,
                 provider: a.provider,
             })
             .collect();
@@ -311,13 +314,13 @@ impl Store {
                     );
                     let sync_state_json = sync_state.to_json()?;
                     tx.execute(
-                        "INSERT INTO accounts (id, email, display_name, provider, sync_state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                        rusqlite::params![&ab.id, &ab.email, &ab.display_name, provider_slug(&ab.provider), sync_state_json, now, now],
+                        "INSERT INTO accounts (id, email, display_name, color, provider, sync_state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        rusqlite::params![&ab.id, &ab.email, &ab.display_name, ab.color.as_deref(), provider_slug(&ab.provider), sync_state_json, now, now],
                     ).map_err(|e| PebbleError::Storage(e.to_string()))?;
                 } else {
                     tx.execute(
-                        "UPDATE accounts SET email = ?1, display_name = ?2, updated_at = ?3 WHERE id = ?4",
-                        rusqlite::params![&ab.email, &ab.display_name, pebble_core::now_timestamp(), &ab.id],
+                        "UPDATE accounts SET email = ?1, display_name = ?2, color = ?3, updated_at = ?4 WHERE id = ?5",
+                        rusqlite::params![&ab.email, &ab.display_name, ab.color.as_deref(), pebble_core::now_timestamp(), &ab.id],
                     )
                     .map_err(|e| PebbleError::Storage(e.to_string()))?;
                 }
@@ -369,6 +372,7 @@ mod tests {
             id: new_id(),
             email: "test@example.com".to_string(),
             display_name: "Test User".to_string(),
+            color: Some("#22c55e".to_string()),
             provider: ProviderType::Imap,
             created_at: now,
             updated_at: now,
@@ -405,6 +409,7 @@ mod tests {
         assert_eq!(backup.version, 1);
         assert_eq!(backup.accounts.len(), 1);
         assert_eq!(backup.accounts[0].email, "test@example.com");
+        assert_eq!(backup.accounts[0].color.as_deref(), Some("#22c55e"));
         assert_eq!(backup.rules.len(), 1);
         assert_eq!(backup.rules[0].name, "Auto-archive");
         assert!(backup.translate_config.is_some());
@@ -419,6 +424,7 @@ mod tests {
         let accounts = store2.list_accounts().unwrap();
         assert_eq!(accounts.len(), 1);
         assert_eq!(accounts[0].email, "test@example.com");
+        assert_eq!(accounts[0].color.as_deref(), Some("#22c55e"));
 
         let rules = store2.list_rules().unwrap();
         assert_eq!(rules.len(), 1);
@@ -438,6 +444,7 @@ mod tests {
             id: "fixed-id".to_string(),
             email: "test@example.com".to_string(),
             display_name: "Test".to_string(),
+            color: None,
             provider: ProviderType::Imap,
             created_at: now,
             updated_at: now,
@@ -505,6 +512,7 @@ mod tests {
             id: new_id(),
             email: "test@example.com".to_string(),
             display_name: "Test User".to_string(),
+            color: None,
             provider: ProviderType::Imap,
             created_at: now,
             updated_at: now,
@@ -605,6 +613,7 @@ mod tests {
                 id: "gmail-account".to_string(),
                 email: "gmail@example.com".to_string(),
                 display_name: "Gmail User".to_string(),
+                color: Some("#3b82f6".to_string()),
                 provider: ProviderType::Gmail,
             }],
             rules: vec![],
@@ -621,6 +630,8 @@ mod tests {
             .unwrap()
             .expect("expected sync_state metadata");
         assert_eq!(sync_state.provider.as_deref(), Some("gmail"));
+        let accounts = store.list_accounts().unwrap();
+        assert_eq!(accounts[0].color.as_deref(), Some("#3b82f6"));
         assert_eq!(
             sync_state.extra.get("needs_reauth"),
             Some(&serde_json::Value::Bool(true))

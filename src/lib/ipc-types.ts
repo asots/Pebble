@@ -14,6 +14,7 @@ export interface Account {
   id: string;
   email: string;
   display_name: string;
+  color?: string | null;
   /** ProviderType enum (rename_all = "lowercase") */
   provider: "imap" | "gmail" | "outlook";
   created_at: number;

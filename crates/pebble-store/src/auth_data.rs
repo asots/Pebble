@@ -57,6 +57,7 @@ mod tests {
             id: new_id(),
             email: "test@example.com".to_string(),
             display_name: "Test".to_string(),
+            color: None,
             provider: ProviderType::Imap,
             created_at: now_timestamp(),
             updated_at: now_timestamp(),

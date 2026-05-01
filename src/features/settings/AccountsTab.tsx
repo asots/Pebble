@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Mail, Pencil, Plug } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useTranslation } from "react-i18next";
@@ -19,12 +19,14 @@ import { useToastStore } from "@/stores/toast.store";
 import AccountSetup from "@/components/AccountSetup";
 import { extractErrorMessage } from "@/lib/extractErrorMessage";
 import { getSignature, setSignature } from "@/lib/signatures";
+import { ACCOUNT_COLOR_PRESETS, assignAccountColors, getAccountColor } from "@/lib/accountColors";
 import { inputStyle, labelStyle } from "../../styles/form";
 
 export default function AccountsTab() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: accounts = [] } = useAccountsQuery();
+  const accountColorsById = useMemo(() => assignAccountColors(accounts), [accounts]);
   const realtimeStatusByAccount = useUIStore((state) => state.realtimeStatusByAccount);
   const [showSetup, setShowSetup] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -153,6 +155,7 @@ export default function AccountsTab() {
           {accounts.map((account, index) => {
             const realtimeStatus = realtimeStatusByAccount[account.id];
             const realtimeLabel = getAccountRealtimeStatusText(realtimeStatus, t);
+            const accountColor = accountColorsById.get(account.id) ?? getAccountColor(account);
 
             return (
               <div
@@ -167,9 +170,21 @@ export default function AccountsTab() {
                 }}
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                  <span style={{ fontSize: "13px", fontWeight: 500 }}>
-                    {account.display_name}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: "8px",
+                        height: "8px",
+                        borderRadius: "50%",
+                        backgroundColor: accountColor,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ fontSize: "13px", fontWeight: 500 }}>
+                      {account.display_name}
+                    </span>
+                  </div>
                   <span
                     style={{
                       fontSize: "12px",
@@ -330,6 +345,7 @@ export default function AccountsTab() {
       {editingAccount && (
         <EditAccountModal
           account={editingAccount}
+          initialColor={accountColorsById.get(editingAccount.id) ?? getAccountColor(editingAccount)}
           onClose={() => setEditingAccount(null)}
           onSaved={async () => {
             setEditingAccount(null);
@@ -369,8 +385,9 @@ function getAccountRealtimeStatusText(
   }
 }
 
-function EditAccountModal({ account, onClose, onSaved }: {
+function EditAccountModal({ account, initialColor, onClose, onSaved }: {
   account: Account;
+  initialColor: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -379,6 +396,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
   const emailInputRef = useRef<HTMLInputElement>(null);
   const [displayName, setDisplayName] = useState(account.display_name);
   const [email, setEmail] = useState(account.email);
+  const [accountColor, setAccountColor] = useState(initialColor);
   const [password, setPassword] = useState("");
   const [imapHost, setImapHost] = useState("");
   const [imapPort, setImapPort] = useState("");
@@ -466,7 +484,21 @@ function EditAccountModal({ account, onClose, onSaved }: {
     setError(null);
     try {
       if (isOAuth) {
-        await updateAccount(account.id, email, displayName);
+        await updateAccount(
+          account.id,
+          email,
+          displayName,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          accountColor,
+        );
         await updateOAuthAccountProxy(
           account.id,
           proxyHost.trim() || undefined,
@@ -486,6 +518,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
           smtpSecurity || undefined,
           proxyHost.trim() || undefined,
           proxyPort ? parseInt(proxyPort, 10) : undefined,
+          accountColor,
         );
       }
       await setSignature(account.id, signature);
@@ -501,6 +534,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
     display: "flex",
     flexDirection: "column",
   };
+  const colorInputValue = /^#[0-9a-fA-F]{6}$/.test(accountColor) ? accountColor : initialColor;
   const proxyFields = (
     <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px" }}>
       <div style={fieldStyle}>
@@ -573,6 +607,73 @@ function EditAccountModal({ account, onClose, onSaved }: {
             <div style={fieldStyle}>
               <label style={labelStyle}>{t("accountSetup.emailAddress")}</label>
               <input aria-label={t("accountSetup.emailAddress")} ref={emailInputRef} style={inputStyle} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div style={fieldStyle}>
+              <label htmlFor="account-color" style={labelStyle}>{t("settings.accountColor", "Account color")}</label>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <input
+                  id="account-color"
+                  aria-label={t("settings.accountColor", "Account color")}
+                  type="color"
+                  value={colorInputValue}
+                  onChange={(e) => setAccountColor(e.target.value)}
+                  style={{
+                    width: "38px",
+                    height: "32px",
+                    padding: "2px",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "6px",
+                    backgroundColor: "var(--color-bg)",
+                    cursor: "pointer",
+                  }}
+                />
+                <input
+                  aria-label={t("settings.accountColorHex", "Account color hex")}
+                  style={{ ...inputStyle, width: "96px", fontFamily: "monospace" }}
+                  value={accountColor}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setAccountColor(value.startsWith("#") ? value : `#${value}`);
+                  }}
+                  pattern="^#[0-9a-fA-F]{6}$"
+                  maxLength={7}
+                />
+              </div>
+              <div
+                aria-label={t("settings.accountColorPresets", "Color presets")}
+                role="group"
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px",
+                  marginTop: "8px",
+                }}
+              >
+                {ACCOUNT_COLOR_PRESETS.map((preset) => {
+                  const presetLabel = `${t("settings.useAccountColorPreset", "Use color")} ${preset.color}`;
+                  const selected = accountColor.toLowerCase() === preset.color;
+                  return (
+                    <button
+                      key={preset.color}
+                      type="button"
+                      aria-label={presetLabel}
+                      aria-pressed={selected}
+                      title={presetLabel}
+                      onClick={() => setAccountColor(preset.color)}
+                      style={{
+                        width: "22px",
+                        height: "22px",
+                        borderRadius: "50%",
+                        border: selected ? "2px solid var(--color-text-primary)" : "1px solid var(--color-border)",
+                        backgroundColor: preset.color,
+                        cursor: "pointer",
+                        padding: 0,
+                        boxShadow: selected ? `0 0 0 2px ${preset.color}33` : "none",
+                      }}
+                    />
+                  );
+                })}
+              </div>
             </div>
             {isOAuth ? (
               <div

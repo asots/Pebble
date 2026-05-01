@@ -10,6 +10,7 @@ import { useMailStore } from "@/stores/mail.store";
 import { useToastStore } from "@/stores/toast.store";
 import { useConfirmStore } from "@/stores/confirm.store";
 import { roleForSelection } from "@/lib/folderAggregation";
+import { assignAccountColors, getAccountColor, getAccountLabel } from "@/lib/accountColors";
 import MessageItem from "./MessageItem";
 import { MessageListSkeleton } from "./Skeleton";
 
@@ -49,6 +50,11 @@ export default function MessageList({
   const activeAccountId = useMailStore((s) => s.activeAccountId);
   const activeFolderId = useMailStore((s) => s.activeFolderId);
   const { data: accounts = [] } = useAccountsQuery();
+  const accountsById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts],
+  );
+  const accountColorsById = useMemo(() => assignAccountColors(accounts), [accounts]);
   const folderAccountIds = useMemo(
     () => activeAccountId ? [activeAccountId] : accounts.map((account) => account.id),
     [accounts, activeAccountId],
@@ -201,6 +207,7 @@ export default function MessageList({
         >
           {virtualizer.getVirtualItems().map((virtualItem) => {
             const message = messages[virtualItem.index];
+            const account = accountsById.get(message.account_id);
             return (
               <div
                 key={virtualItem.key}
@@ -225,6 +232,8 @@ export default function MessageList({
                   onToggleBatchSelect={toggleMessageSelection}
                   spamFolderId={spamFolderId}
                   folderRole={activeFolderRole}
+                  accountColor={accountColorsById.get(message.account_id) ?? getAccountColor(account, message.account_id)}
+                  accountLabel={getAccountLabel(account, message.account_id)}
                 />
               </div>
             );

@@ -1,7 +1,7 @@
 use pebble_core::{PebbleError, Result};
 use rusqlite::Connection;
 
-const CURRENT_VERSION: u32 = 10;
+const CURRENT_VERSION: u32 = 11;
 
 fn get_schema_version(conn: &Connection) -> u32 {
     conn.pragma_query_value(None, "user_version", |row| row.get(0))
@@ -210,6 +210,20 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             .map_err(|e| PebbleError::Storage(format!("Migration V10 commit failed: {e}")))?;
     }
 
+    if version < 11 {
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| PebbleError::Storage(format!("Migration V11 begin failed: {e}")))?;
+        let has_color: bool = tx.prepare("SELECT color FROM accounts LIMIT 0").is_ok();
+        if !has_color {
+            tx.execute_batch("ALTER TABLE accounts ADD COLUMN color TEXT;")
+                .map_err(|e| PebbleError::Storage(format!("Migration V11 failed: {e}")))?;
+        }
+        set_schema_version(&tx, 10)?;
+        tx.commit()
+            .map_err(|e| PebbleError::Storage(format!("Migration V11 commit failed: {e}")))?;
+    }
+
     Ok(())
 }
 
@@ -218,6 +232,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL,
     display_name TEXT NOT NULL DEFAULT '',
+    color TEXT,
     provider TEXT NOT NULL CHECK(provider IN ('imap', 'gmail', 'outlook')),
     auth_data BLOB,
     sync_state TEXT,

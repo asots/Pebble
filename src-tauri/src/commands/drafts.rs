@@ -244,6 +244,7 @@ mod tests {
             id: id.to_string(),
             email: email.to_string(),
             display_name: email.to_string(),
+            color: None,
             provider: ProviderType::Imap,
             created_at: now,
             updated_at: now,

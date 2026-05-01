@@ -15,6 +15,7 @@ import {
   listAccounts,
   updateGlobalProxy,
   updateOAuthAccountProxy,
+  updateAccount,
 } from "../../src/lib/api";
 
 describe("useAccountsQuery", () => {
@@ -85,6 +86,42 @@ describe("useAccountsQuery", () => {
     expect(mockInvoke).toHaveBeenCalledWith("update_global_proxy", {
       proxyHost: "127.0.0.1",
       proxyPort: 7890,
+    });
+  });
+
+  it("updateAccount should include accountColor when saving an account color", async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+
+    await updateAccount(
+      "account-1",
+      "user@example.com",
+      "User",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "#22c55e",
+    );
+
+    expect(mockInvoke).toHaveBeenCalledWith("update_account", {
+      accountId: "account-1",
+      email: "user@example.com",
+      displayName: "User",
+      password: undefined,
+      imapHost: undefined,
+      imapPort: undefined,
+      smtpHost: undefined,
+      smtpPort: undefined,
+      imapSecurity: undefined,
+      smtpSecurity: undefined,
+      proxyHost: undefined,
+      proxyPort: undefined,
+      accountColor: "#22c55e",
     });
   });
 });

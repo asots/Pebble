@@ -77,12 +77,13 @@ impl Store {
     pub fn insert_account(&self, account: &Account) -> Result<()> {
         self.with_write(|conn| {
             conn.execute(
-                "INSERT INTO accounts (id, email, display_name, provider, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO accounts (id, email, display_name, color, provider, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params![
                     account.id,
                     account.email,
                     account.display_name,
+                    account.color.as_deref(),
                     provider_to_str(&account.provider),
                     account.created_at,
                     account.updated_at,
@@ -92,12 +93,18 @@ impl Store {
         })
     }
 
-    pub fn update_account(&self, id: &str, email: &str, display_name: &str) -> Result<()> {
+    pub fn update_account(
+        &self,
+        id: &str,
+        email: &str,
+        display_name: &str,
+        color: Option<&str>,
+    ) -> Result<()> {
         self.with_write(|conn| {
             let now = pebble_core::now_timestamp();
             conn.execute(
-                "UPDATE accounts SET email = ?1, display_name = ?2, updated_at = ?3 WHERE id = ?4",
-                rusqlite::params![email, display_name, now, id],
+                "UPDATE accounts SET email = ?1, display_name = ?2, color = ?3, updated_at = ?4 WHERE id = ?5",
+                rusqlite::params![email, display_name, color, now, id],
             )?;
             Ok(())
         })
@@ -107,7 +114,7 @@ impl Store {
         self.with_read(|conn| {
             let result = conn
                 .query_row(
-                    "SELECT id, email, display_name, provider, created_at, updated_at
+                    "SELECT id, email, display_name, color, provider, created_at, updated_at
                      FROM accounts WHERE id = ?1",
                     rusqlite::params![id],
                     |row| {
@@ -115,9 +122,10 @@ impl Store {
                             id: row.get(0)?,
                             email: row.get(1)?,
                             display_name: row.get(2)?,
-                            provider: str_to_provider(&row.get::<_, String>(3)?),
-                            created_at: row.get(4)?,
-                            updated_at: row.get(5)?,
+                            color: row.get(3)?,
+                            provider: str_to_provider(&row.get::<_, String>(4)?),
+                            created_at: row.get(5)?,
+                            updated_at: row.get(6)?,
                         })
                     },
                 )
@@ -129,7 +137,7 @@ impl Store {
     pub fn list_accounts(&self) -> Result<Vec<Account>> {
         self.with_read(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, email, display_name, provider, created_at, updated_at
+                "SELECT id, email, display_name, color, provider, created_at, updated_at
                      FROM accounts ORDER BY created_at ASC",
             )?;
             let rows = stmt.query_map([], |row| {
@@ -137,9 +145,10 @@ impl Store {
                     id: row.get(0)?,
                     email: row.get(1)?,
                     display_name: row.get(2)?,
-                    provider: str_to_provider(&row.get::<_, String>(3)?),
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    color: row.get(3)?,
+                    provider: str_to_provider(&row.get::<_, String>(4)?),
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             })?;
             let mut accounts = Vec::new();
@@ -290,6 +299,7 @@ mod cursor_tests {
             id: new_id(),
             email: "test@example.com".to_string(),
             display_name: "Test".to_string(),
+            color: None,
             provider: ProviderType::Imap,
             created_at: now_timestamp(),
             updated_at: now_timestamp(),
@@ -341,6 +351,30 @@ mod cursor_tests {
         assert_eq!(value["foo"], "bar");
         assert_eq!(value["provider"], "imap");
     }
+
+    #[test]
+    fn test_account_color_is_persisted_and_updated() {
+        let store = Store::open_in_memory().unwrap();
+        let mut account = test_account();
+        account.color = Some("#22c55e".to_string());
+        store.insert_account(&account).unwrap();
+
+        let loaded = store.get_account(&account.id).unwrap().unwrap();
+        assert_eq!(loaded.color.as_deref(), Some("#22c55e"));
+
+        store
+            .update_account(
+                &account.id,
+                "renamed@example.com",
+                "Renamed",
+                Some("#f97316"),
+            )
+            .unwrap();
+
+        let updated = store.get_account(&account.id).unwrap().unwrap();
+        assert_eq!(updated.email, "renamed@example.com");
+        assert_eq!(updated.color.as_deref(), Some("#f97316"));
+    }
 }
 
 #[cfg(test)]
@@ -353,6 +387,7 @@ mod folder_sync_state_tests {
             id: new_id(),
             email: "test@example.com".to_string(),
             display_name: "Test".to_string(),
+            color: None,
             provider: ProviderType::Imap,
             created_at: now_timestamp(),
             updated_at: now_timestamp(),

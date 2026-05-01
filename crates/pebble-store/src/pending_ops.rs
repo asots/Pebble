@@ -452,6 +452,7 @@ mod tests {
             id: new_id(),
             email: "test@example.com".to_string(),
             display_name: "Test".to_string(),
+            color: None,
             provider: ProviderType::Gmail,
             created_at: now,
             updated_at: now,

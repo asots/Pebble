@@ -228,6 +228,23 @@ fn validate_connection_security(
     Ok(())
 }
 
+fn validate_account_color(color: Option<&str>) -> std::result::Result<(), PebbleError> {
+    let Some(color) = color else {
+        return Ok(());
+    };
+
+    if color.len() == 7
+        && color.as_bytes()[0] == b'#'
+        && color.as_bytes()[1..].iter().all(|b| b.is_ascii_hexdigit())
+    {
+        Ok(())
+    } else {
+        Err(PebbleError::Validation(
+            "Account color must be a hex color like #22c55e".to_string(),
+        ))
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct AddAccountRequest {
@@ -277,6 +294,7 @@ pub async fn add_account(
         id: new_id(),
         email: request.email.clone(),
         display_name: request.display_name.clone(),
+        color: None,
         provider: provider.clone(),
         created_at: now,
         updated_at: now,
@@ -356,7 +374,10 @@ pub async fn update_account(
     smtp_security: Option<ConnectionSecurity>,
     proxy_host: Option<String>,
     proxy_port: Option<u16>,
+    account_color: Option<String>,
 ) -> std::result::Result<(), PebbleError> {
+    validate_account_color(account_color.as_deref())?;
+
     let credentials_dirty = password.is_some()
         || imap_host.is_some()
         || smtp_host.is_some()
@@ -369,7 +390,7 @@ pub async fn update_account(
     if !credentials_dirty {
         state
             .store
-            .update_account(&account_id, &email, &display_name)?;
+            .update_account(&account_id, &email, &display_name, account_color.as_deref())?;
         return Ok(());
     }
 
@@ -462,7 +483,7 @@ pub async fn update_account(
 
     state
         .store
-        .update_account(&account_id, &email, &display_name)?;
+        .update_account(&account_id, &email, &display_name, account_color.as_deref())?;
 
     let config_bytes = serialize_account_credentials(&creds)?;
     let encrypted = state.crypto.encrypt(&config_bytes)?;

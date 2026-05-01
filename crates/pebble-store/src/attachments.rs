@@ -89,6 +89,7 @@ mod tests {
             id: new_id(),
             email: "test@example.com".to_string(),
             display_name: "Test".to_string(),
+            color: None,
             provider: pebble_core::ProviderType::Imap,
             created_at: now,
             updated_at: now,

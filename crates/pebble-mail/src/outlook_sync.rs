@@ -699,6 +699,7 @@ mod tests {
             id: "account-1".to_string(),
             email: "user@example.com".to_string(),
             display_name: "User".to_string(),
+            color: None,
             provider: ProviderType::Outlook,
             created_at: now_timestamp(),
             updated_at: now_timestamp(),
