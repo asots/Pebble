@@ -1,5 +1,7 @@
 use super::network::{
-    effective_proxy_for_account, proxy_config_from_parts, resolve_effective_proxy,
+    account_proxy_setting_from_parts, get_global_proxy_raw, normalize_account_proxy_setting,
+    proxy_config_from_parts, resolve_effective_proxy, resolve_effective_proxy_setting,
+    AccountProxyMode, AccountProxySetting,
 };
 use crate::state::AppState;
 use pebble_core::{
@@ -324,9 +326,11 @@ fn persist_oauth_tokens_raw(
     account_id: &str,
     tokens: &OAuthTokens,
 ) -> Result<(), PebbleError> {
-    let proxy =
-        read_stored_oauth_auth_data_raw(crypto, store, account_id)?.and_then(|stored| stored.proxy);
-    let stored = StoredOAuthAuthData::from_tokens(tokens.clone(), proxy);
+    let (proxy_mode, proxy) = read_stored_oauth_auth_data_raw(crypto, store, account_id)?
+        .map(|stored| (stored.proxy_mode, stored.proxy))
+        .unwrap_or((AccountProxyMode::Inherit, None));
+    let stored =
+        StoredOAuthAuthData::from_tokens_with_proxy_mode(tokens.clone(), proxy_mode, proxy);
     persist_stored_oauth_auth_data_raw(crypto, store, account_id, &stored)
 }
 
@@ -339,17 +343,33 @@ struct StoredOAuthAuthData {
     expires_at: Option<i64>,
     #[serde(default)]
     scopes: Vec<String>,
+    #[serde(default, skip_serializing_if = "super::network::is_inherit_proxy_mode")]
+    proxy_mode: AccountProxyMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     proxy: Option<HttpProxyConfig>,
 }
 
 impl StoredOAuthAuthData {
     fn from_tokens(tokens: OAuthTokens, proxy: Option<HttpProxyConfig>) -> Self {
+        let proxy_mode = if proxy.is_some() {
+            AccountProxyMode::Custom
+        } else {
+            AccountProxyMode::Inherit
+        };
+        Self::from_tokens_with_proxy_mode(tokens, proxy_mode, proxy)
+    }
+
+    fn from_tokens_with_proxy_mode(
+        tokens: OAuthTokens,
+        proxy_mode: AccountProxyMode,
+        proxy: Option<HttpProxyConfig>,
+    ) -> Self {
         Self {
             access_token: tokens.access_token,
             refresh_token: tokens.refresh_token,
             expires_at: tokens.expires_at,
             scopes: tokens.scopes,
+            proxy_mode,
             proxy,
         }
     }
@@ -363,8 +383,20 @@ impl StoredOAuthAuthData {
         self
     }
 
+    #[cfg(test)]
     fn with_proxy(mut self, proxy: Option<HttpProxyConfig>) -> Self {
+        self.proxy_mode = if proxy.is_some() {
+            AccountProxyMode::Custom
+        } else {
+            AccountProxyMode::Inherit
+        };
         self.proxy = proxy;
+        self
+    }
+
+    fn with_proxy_setting(mut self, setting: AccountProxySetting) -> Self {
+        self.proxy_mode = setting.mode;
+        self.proxy = setting.proxy;
         self
     }
 
@@ -408,6 +440,19 @@ fn read_stored_oauth_auth_data_raw(
     decode_stored_oauth_auth_data(&decrypted).map(Some)
 }
 
+fn effective_oauth_proxy(
+    crypto: &CryptoService,
+    store: &Store,
+    stored: &StoredOAuthAuthData,
+) -> Result<Option<HttpProxyConfig>, PebbleError> {
+    let global_proxy = get_global_proxy_raw(crypto, store)?;
+    Ok(resolve_effective_proxy_setting(
+        stored.proxy_mode,
+        stored.proxy.clone(),
+        global_proxy,
+    ))
+}
+
 /// Decoded view of an account's stored OAuth token blob.
 pub(crate) struct DecodedOAuthTokens {
     pub access_token: String,
@@ -432,7 +477,7 @@ pub(crate) fn decode_oauth_account_tokens(
 ) -> Result<DecodedOAuthTokens, PebbleError> {
     let stored = read_stored_oauth_auth_data_raw(&state.crypto, &state.store, account_id)?
         .ok_or_else(|| PebbleError::Internal(format!("No auth data for account {account_id}")))?;
-    let proxy = effective_proxy_for_account(&state.crypto, &state.store, stored.proxy.clone())?;
+    let proxy = effective_oauth_proxy(&state.crypto, &state.store, &stored)?;
     Ok(DecodedOAuthTokens {
         access_token: stored.access_token,
         refresh_token: stored.refresh_token,
@@ -472,8 +517,7 @@ pub(crate) fn build_oauth_token_refresher(
                         Some(encrypted) => {
                             let decrypted = crypto.decrypt(&encrypted)?;
                             let stored = decode_stored_oauth_auth_data(&decrypted)?;
-                            let effective_proxy =
-                                effective_proxy_for_account(&crypto, &store, stored.proxy.clone())?;
+                            let effective_proxy = effective_oauth_proxy(&crypto, &store, &stored)?;
                             (
                                 stored.refresh_token.clone().unwrap_or(initial_rt),
                                 OAuthNetworkConfig {
@@ -482,8 +526,7 @@ pub(crate) fn build_oauth_token_refresher(
                             )
                         }
                         None => {
-                            let effective_proxy =
-                                effective_proxy_for_account(&crypto, &store, None)?;
+                            let effective_proxy = get_global_proxy_raw(&crypto, &store)?;
                             (
                                 initial_rt,
                                 OAuthNetworkConfig {
@@ -525,7 +568,7 @@ pub(crate) async fn ensure_account_oauth_auth(
         .ok_or_else(|| {
             PebbleError::Internal(format!("No auth data found for account {account_id}"))
         })?;
-    let proxy = effective_proxy_for_account(&state.crypto, &state.store, stored.proxy.clone())?;
+    let proxy = effective_oauth_proxy(&state.crypto, &state.store, &stored)?;
     let network = OAuthNetworkConfig {
         proxy: proxy.clone(),
     };
@@ -677,12 +720,25 @@ pub async fn get_oauth_account_proxy(
     state: State<'_, AppState>,
     account_id: String,
 ) -> std::result::Result<Option<HttpProxyConfig>, PebbleError> {
+    Ok(get_oauth_account_proxy_setting(state, account_id)
+        .await?
+        .proxy)
+}
+
+#[tauri::command]
+pub async fn get_oauth_account_proxy_setting(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<AccountProxySetting, PebbleError> {
     ensure_oauth_account_provider(&state, &account_id)?;
     let stored = read_stored_oauth_auth_data_raw(&state.crypto, &state.store, &account_id)?
         .ok_or_else(|| {
             PebbleError::Internal(format!("No auth data found for account {account_id}"))
         })?;
-    Ok(stored.proxy)
+    Ok(normalize_account_proxy_setting(
+        stored.proxy_mode,
+        stored.proxy,
+    ))
 }
 
 #[tauri::command]
@@ -692,13 +748,46 @@ pub async fn update_oauth_account_proxy(
     proxy_host: Option<String>,
     proxy_port: Option<u16>,
 ) -> std::result::Result<(), PebbleError> {
-    ensure_oauth_account_provider(&state, &account_id)?;
     let proxy = oauth_proxy_from_parts(proxy_host, proxy_port)?;
+    match proxy {
+        Some(proxy) => {
+            update_oauth_account_proxy_setting(
+                state,
+                account_id,
+                AccountProxyMode::Custom,
+                Some(proxy.host),
+                Some(proxy.port),
+            )
+            .await
+        }
+        None => {
+            update_oauth_account_proxy_setting(
+                state,
+                account_id,
+                AccountProxyMode::Inherit,
+                None,
+                None,
+            )
+            .await
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn update_oauth_account_proxy_setting(
+    state: State<'_, AppState>,
+    account_id: String,
+    mode: AccountProxyMode,
+    proxy_host: Option<String>,
+    proxy_port: Option<u16>,
+) -> std::result::Result<(), PebbleError> {
+    ensure_oauth_account_provider(&state, &account_id)?;
+    let setting = account_proxy_setting_from_parts(mode, proxy_host, proxy_port, "OAuth proxy")?;
     let stored = read_stored_oauth_auth_data_raw(&state.crypto, &state.store, &account_id)?
         .ok_or_else(|| {
             PebbleError::Internal(format!("No auth data found for account {account_id}"))
         })?
-        .with_proxy(proxy);
+        .with_proxy_setting(setting);
     persist_stored_oauth_auth_data_raw(&state.crypto, &state.store, &account_id, &stored)
 }
 
@@ -847,6 +936,7 @@ MICROSOFT_CLIENT_SECRET='microsoft-secret'
         assert_eq!(stored.refresh_token.as_deref(), Some("refresh"));
         assert_eq!(stored.expires_at, Some(1234));
         assert_eq!(stored.scopes, vec!["scope"]);
+        assert_eq!(stored.proxy_mode, AccountProxyMode::Inherit);
         assert_eq!(stored.proxy, None);
     }
 
@@ -857,6 +947,7 @@ MICROSOFT_CLIENT_SECRET='microsoft-secret'
             refresh_token: Some("old-refresh".to_string()),
             expires_at: Some(1),
             scopes: vec!["old-scope".to_string()],
+            proxy_mode: AccountProxyMode::Custom,
             proxy: Some(pebble_core::HttpProxyConfig {
                 host: "127.0.0.1".to_string(),
                 port: 7890,
@@ -875,6 +966,7 @@ MICROSOFT_CLIENT_SECRET='microsoft-secret'
         assert_eq!(updated.refresh_token.as_deref(), Some("new-refresh"));
         assert_eq!(updated.expires_at, Some(2));
         assert_eq!(updated.scopes, vec!["new-scope"]);
+        assert_eq!(updated.proxy_mode, AccountProxyMode::Custom);
         assert_eq!(
             updated.proxy,
             Some(pebble_core::HttpProxyConfig {
@@ -915,6 +1007,7 @@ MICROSOFT_CLIENT_SECRET='microsoft-secret'
             refresh_token: Some("refresh".to_string()),
             expires_at: Some(1234),
             scopes: vec!["scope".to_string()],
+            proxy_mode: AccountProxyMode::Inherit,
             proxy: None,
         };
 
@@ -927,6 +1020,7 @@ MICROSOFT_CLIENT_SECRET='microsoft-secret'
         assert_eq!(updated.refresh_token.as_deref(), Some("refresh"));
         assert_eq!(updated.expires_at, Some(1234));
         assert_eq!(updated.scopes, vec!["scope"]);
+        assert_eq!(updated.proxy_mode, AccountProxyMode::Custom);
         assert_eq!(
             updated.proxy,
             Some(pebble_core::HttpProxyConfig {

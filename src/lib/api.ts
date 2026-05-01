@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 // Re-export all IPC types so existing `import { Foo } from "@/lib/api"` keeps working.
 export type {
   Account,
+  AccountProxyMode,
+  AccountProxySetting,
   AddAccountRequest,
   AdvancedSearchQuery,
   AppLogSnapshot,
@@ -33,6 +35,8 @@ export type {
 
 import type {
   Account,
+  AccountProxyMode,
+  AccountProxySetting,
   AddAccountRequest,
   AdvancedSearchQuery,
   AppLogSnapshot,
@@ -74,6 +78,31 @@ export async function getGlobalProxy(): Promise<HttpProxyConfig | null> {
   return invoke<HttpProxyConfig | null>("get_global_proxy");
 }
 
+export async function getAccountProxy(accountId: string): Promise<HttpProxyConfig | null> {
+  return invoke<HttpProxyConfig | null>("get_account_proxy", { accountId });
+}
+
+export async function getAccountProxySetting(accountId: string): Promise<AccountProxySetting> {
+  return invoke<AccountProxySetting>("get_account_proxy_setting", { accountId });
+}
+
+export async function updateAccountProxy(
+  accountId: string,
+  proxyHost?: string,
+  proxyPort?: number,
+): Promise<void> {
+  return invoke<void>("update_account_proxy", { accountId, proxyHost, proxyPort });
+}
+
+export async function updateAccountProxySetting(
+  accountId: string,
+  mode: AccountProxyMode,
+  proxyHost?: string,
+  proxyPort?: number,
+): Promise<void> {
+  return invoke<void>("update_account_proxy_setting", { accountId, mode, proxyHost, proxyPort });
+}
+
 export async function updateGlobalProxy(
   proxyHost?: string,
   proxyPort?: number,
@@ -95,12 +124,25 @@ export async function getOAuthAccountProxy(accountId: string): Promise<HttpProxy
   return invoke<HttpProxyConfig | null>("get_oauth_account_proxy", { accountId });
 }
 
+export async function getOAuthAccountProxySetting(accountId: string): Promise<AccountProxySetting> {
+  return invoke<AccountProxySetting>("get_oauth_account_proxy_setting", { accountId });
+}
+
 export async function updateOAuthAccountProxy(
   accountId: string,
   proxyHost?: string,
   proxyPort?: number,
 ): Promise<void> {
   return invoke<void>("update_oauth_account_proxy", { accountId, proxyHost, proxyPort });
+}
+
+export async function updateOAuthAccountProxySetting(
+  accountId: string,
+  mode: AccountProxyMode,
+  proxyHost?: string,
+  proxyPort?: number,
+): Promise<void> {
+  return invoke<void>("update_oauth_account_proxy_setting", { accountId, mode, proxyHost, proxyPort });
 }
 
 export async function addAccount(request: AddAccountRequest): Promise<Account> {

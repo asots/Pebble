@@ -163,6 +163,15 @@ export interface HttpProxyConfig {
   port: number;
 }
 
+/** @rust src-tauri/src/commands/network.rs -> AccountProxyMode */
+export type AccountProxyMode = "inherit" | "disabled" | "custom";
+
+/** @rust src-tauri/src/commands/network.rs -> AccountProxySetting */
+export interface AccountProxySetting {
+  mode: AccountProxyMode;
+  proxy: HttpProxyConfig | null;
+}
+
 // ─── Attachment types ───────────────────────────────────────────────────────────
 
 /** @rust pebble-core/src/types.rs → Attachment */

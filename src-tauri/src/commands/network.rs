@@ -3,10 +3,29 @@ use pebble_core::{HttpProxyConfig, PebbleError};
 use pebble_crypto::CryptoService;
 use pebble_mail::ProxyConfig;
 use pebble_store::Store;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tauri::State;
 
 const GLOBAL_PROXY_KEY: &str = "global_network_proxy";
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AccountProxyMode {
+    #[default]
+    Inherit,
+    Disabled,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountProxySetting {
+    pub mode: AccountProxyMode,
+    pub proxy: Option<HttpProxyConfig>,
+}
+
+pub(crate) fn is_inherit_proxy_mode(mode: &AccountProxyMode) -> bool {
+    matches!(mode, AccountProxyMode::Inherit)
+}
 
 fn decrypt_json<T: DeserializeOwned>(
     crypto: &CryptoService,
@@ -66,9 +85,71 @@ pub(crate) fn resolve_effective_proxy(
     account_proxy.or(global_proxy)
 }
 
+pub(crate) fn resolve_effective_proxy_setting(
+    mode: AccountProxyMode,
+    account_proxy: Option<HttpProxyConfig>,
+    global_proxy: Option<HttpProxyConfig>,
+) -> Option<HttpProxyConfig> {
+    match mode {
+        AccountProxyMode::Inherit => resolve_effective_proxy(account_proxy, global_proxy),
+        AccountProxyMode::Disabled => None,
+        AccountProxyMode::Custom => account_proxy,
+    }
+}
+
+pub(crate) fn normalize_account_proxy_setting(
+    mode: AccountProxyMode,
+    proxy: Option<HttpProxyConfig>,
+) -> AccountProxySetting {
+    let mode = if matches!(mode, AccountProxyMode::Inherit) && proxy.is_some() {
+        AccountProxyMode::Custom
+    } else {
+        mode
+    };
+    let proxy = if matches!(mode, AccountProxyMode::Custom) {
+        proxy
+    } else {
+        None
+    };
+
+    AccountProxySetting { mode, proxy }
+}
+
+pub(crate) fn account_proxy_setting_from_parts(
+    mode: AccountProxyMode,
+    proxy_host: Option<String>,
+    proxy_port: Option<u16>,
+    label: &str,
+) -> Result<AccountProxySetting, PebbleError> {
+    let proxy = proxy_config_from_parts(proxy_host, proxy_port, label)?;
+    match mode {
+        AccountProxyMode::Custom => {
+            let proxy = proxy.ok_or_else(|| {
+                PebbleError::Network(format!(
+                    "{label} host and port are required when custom proxy is selected"
+                ))
+            })?;
+            Ok(AccountProxySetting {
+                mode,
+                proxy: Some(proxy),
+            })
+        }
+        AccountProxyMode::Inherit | AccountProxyMode::Disabled => {
+            Ok(AccountProxySetting { mode, proxy: None })
+        }
+    }
+}
+
 pub(crate) fn mail_proxy_from_http(proxy: HttpProxyConfig) -> ProxyConfig {
     ProxyConfig {
         host: proxy.host,
+        port: proxy.port,
+    }
+}
+
+pub(crate) fn http_proxy_from_mail_proxy(proxy: &ProxyConfig) -> HttpProxyConfig {
+    HttpProxyConfig {
+        host: proxy.host.clone(),
         port: proxy.port,
     }
 }
@@ -91,13 +172,25 @@ pub(crate) fn set_global_proxy_raw(
     }
 }
 
-pub(crate) fn effective_proxy_for_account(
+pub(crate) fn resolve_mail_proxy_from_mode(
     crypto: &CryptoService,
     store: &Store,
-    account_proxy: Option<HttpProxyConfig>,
-) -> Result<Option<HttpProxyConfig>, PebbleError> {
+    mode: AccountProxyMode,
+    account_proxy: Option<ProxyConfig>,
+) -> Result<Option<ProxyConfig>, PebbleError> {
+    let account_proxy = account_proxy.as_ref().map(http_proxy_from_mail_proxy);
     let global_proxy = get_global_proxy_raw(crypto, store)?;
-    Ok(resolve_effective_proxy(account_proxy, global_proxy))
+    Ok(
+        resolve_effective_proxy_setting(mode, account_proxy, global_proxy)
+            .map(mail_proxy_from_http),
+    )
+}
+
+pub(crate) fn account_proxy_mode_from_auth_value(value: &serde_json::Value) -> AccountProxyMode {
+    value
+        .get("proxy_mode")
+        .and_then(|mode| serde_json::from_value(mode.clone()).ok())
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -163,5 +256,18 @@ mod tests {
         });
 
         assert_eq!(resolve_effective_proxy(None, global.clone()), global);
+    }
+
+    #[test]
+    fn disabled_account_proxy_mode_ignores_global_proxy() {
+        let global = Some(HttpProxyConfig {
+            host: "127.0.0.1".to_string(),
+            port: 7890,
+        });
+
+        assert_eq!(
+            resolve_effective_proxy_setting(AccountProxyMode::Disabled, None, global),
+            None
+        );
     }
 }

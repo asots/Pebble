@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::commands::attachments::{sanitize_stored_filename, stage_local_attachment_records};
 use crate::commands::messages::refresh_search_document;
-use crate::commands::network::{effective_proxy_for_account, mail_proxy_from_http};
+use crate::commands::network::{account_proxy_mode_from_auth_value, resolve_mail_proxy_from_mode};
 use crate::commands::oauth::ensure_account_oauth_auth;
 use crate::{events, state::AppState};
 use pebble_core::traits::{MailTransport, OutgoingMessage};
@@ -229,10 +229,8 @@ pub(crate) fn load_smtp_config(
     )
     .map_err(|e| PebbleError::Internal(format!("Failed to deserialize SMTP config: {e}")))?;
 
-    if smtp_config.proxy.is_none() {
-        smtp_config.proxy =
-            effective_proxy_for_account(crypto, store, None)?.map(mail_proxy_from_http);
-    }
+    let proxy_mode = account_proxy_mode_from_auth_value(&config);
+    smtp_config.proxy = resolve_mail_proxy_from_mode(crypto, store, proxy_mode, smtp_config.proxy)?;
 
     Ok(smtp_config)
 }

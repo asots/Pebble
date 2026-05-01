@@ -134,6 +134,29 @@ option {
   background: transparent;
 }
 
+.settings-panel-scroll {
+  scrollbar-color: color-mix(in srgb, var(--color-scrollbar-thumb) 86%, transparent) transparent;
+  scrollbar-gutter: stable;
+}
+
+.settings-panel-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 0;
+}
+
+.settings-panel-scroll::-webkit-scrollbar-thumb {
+  min-height: 56px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--color-scrollbar-thumb) 86%, transparent);
+}
+
+.settings-panel-scroll:hover::-webkit-scrollbar-thumb,
+.settings-panel-scroll:focus-within::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--color-accent) 62%, transparent);
+}
+
 /* ─── Animations ──────────────────────────────────────────── */
 
 @keyframes fadeIn {

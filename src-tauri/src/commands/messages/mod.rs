@@ -6,7 +6,9 @@ pub mod rendering;
 
 // Shared helpers used by flags and lifecycle submodules.
 
-use crate::commands::network::{effective_proxy_for_account, mail_proxy_from_http};
+use crate::commands::network::{
+    account_proxy_mode_from_auth_value, resolve_mail_proxy_from_mode, AccountProxyMode,
+};
 use crate::commands::oauth::ensure_account_oauth_auth;
 use crate::state::AppState;
 use pebble_core::{FolderRole, Message, PebbleError};
@@ -182,12 +184,18 @@ pub(super) fn load_imap_config(
     crypto: &CryptoService,
     account_id: &str,
 ) -> std::result::Result<ImapConfig, PebbleError> {
-    let mut config: ImapConfig = if let Some(encrypted) = store.get_auth_data(account_id)? {
+    let (mut config, proxy_mode): (ImapConfig, AccountProxyMode) = if let Some(encrypted) =
+        store.get_auth_data(account_id)?
+    {
         let decrypted = crypto.decrypt(&encrypted)?;
         let value: serde_json::Value = serde_json::from_slice(&decrypted)
             .map_err(|e| PebbleError::Internal(format!("Failed to parse config: {e}")))?;
-        serde_json::from_value(value.get("imap").cloned().unwrap_or(value.clone()))
-            .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))
+        let proxy_mode = account_proxy_mode_from_auth_value(&value);
+        let config = serde_json::from_value(value.get("imap").cloned().unwrap_or(value.clone()))
+            .map_err(|e| {
+                PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}"))
+            })?;
+        (config, proxy_mode)
     } else {
         // Legacy path: IMAP config used to live inline in sync_state.
         let sync_state = store
@@ -196,13 +204,13 @@ pub(super) fn load_imap_config(
         let imap_value = sync_state.imap.ok_or_else(|| {
             PebbleError::Internal(format!("No IMAP config for account {account_id}"))
         })?;
-        serde_json::from_value(imap_value)
-            .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))
-    }?;
+        let config = serde_json::from_value(imap_value).map_err(|e| {
+            PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}"))
+        })?;
+        (config, AccountProxyMode::Inherit)
+    };
 
-    if config.proxy.is_none() {
-        config.proxy = effective_proxy_for_account(crypto, store, None)?.map(mail_proxy_from_http);
-    }
+    config.proxy = resolve_mail_proxy_from_mode(crypto, store, proxy_mode, config.proxy)?;
 
     Ok(config)
 }

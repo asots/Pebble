@@ -1,11 +1,13 @@
 use crate::commands::network::{
-    effective_proxy_for_account, get_global_proxy_raw, mail_proxy_from_http,
-    proxy_config_from_parts, resolve_effective_proxy,
+    account_proxy_setting_from_parts, get_global_proxy_raw, http_proxy_from_mail_proxy,
+    is_inherit_proxy_mode, mail_proxy_from_http, normalize_account_proxy_setting,
+    proxy_config_from_parts, resolve_effective_proxy, resolve_mail_proxy_from_mode,
+    AccountProxyMode, AccountProxySetting,
 };
 use crate::commands::oauth::ensure_account_oauth_auth;
 use crate::state::AppState;
 use pebble_core::traits::FolderProvider;
-use pebble_core::{new_id, now_timestamp, Account, PebbleError, ProviderType};
+use pebble_core::{new_id, now_timestamp, Account, HttpProxyConfig, PebbleError, ProviderType};
 use pebble_mail::GmailProvider;
 use pebble_mail::OutlookProvider;
 use pebble_mail::{ConnectionSecurity, ImapConfig, ProxyConfig, SmtpConfig};
@@ -20,12 +22,15 @@ use tauri::State;
 /// `ImapConfig` / `SmtpConfig`'s own legacy-aware deserializers.
 #[derive(Debug, Clone)]
 struct AccountCredentials {
+    proxy_mode: AccountProxyMode,
     imap: ImapConfig,
     smtp: SmtpConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredAccountCredentials {
+    #[serde(default, skip_serializing_if = "is_inherit_proxy_mode")]
+    proxy_mode: AccountProxyMode,
     imap: StoredMailConfig,
     smtp: StoredMailConfig,
 }
@@ -109,6 +114,7 @@ impl From<&SmtpConfig> for StoredMailConfig {
 impl From<&AccountCredentials> for StoredAccountCredentials {
     fn from(value: &AccountCredentials) -> Self {
         Self {
+            proxy_mode: value.proxy_mode,
             imap: StoredMailConfig::from(&value.imap),
             smtp: StoredMailConfig::from(&value.smtp),
         }
@@ -118,6 +124,7 @@ impl From<&AccountCredentials> for StoredAccountCredentials {
 impl From<StoredAccountCredentials> for AccountCredentials {
     fn from(value: StoredAccountCredentials) -> Self {
         Self {
+            proxy_mode: value.proxy_mode,
             imap: value.imap.into_imap(),
             smtp: value.smtp.into_smtp(),
         }
@@ -154,6 +161,48 @@ fn deserialize_account_credentials(
 ) -> std::result::Result<AccountCredentials, PebbleError> {
     serde_json::from_slice(bytes)
         .map_err(|e| PebbleError::Internal(format!("Failed to parse config: {e}")))
+}
+
+fn account_proxy_from_credentials(credentials: &AccountCredentials) -> Option<HttpProxyConfig> {
+    credentials
+        .imap
+        .proxy
+        .as_ref()
+        .or(credentials.smtp.proxy.as_ref())
+        .map(http_proxy_from_mail_proxy)
+}
+
+fn account_proxy_setting_from_credentials(credentials: &AccountCredentials) -> AccountProxySetting {
+    normalize_account_proxy_setting(
+        credentials.proxy_mode,
+        account_proxy_from_credentials(credentials),
+    )
+}
+
+fn set_account_proxy_setting_on_credentials(
+    credentials: &mut AccountCredentials,
+    setting: AccountProxySetting,
+) {
+    credentials.proxy_mode = setting.mode;
+    let proxy = setting.proxy.map(mail_proxy_from_http);
+    credentials.imap.proxy = proxy.clone();
+    credentials.smtp.proxy = proxy;
+}
+
+#[cfg(test)]
+fn set_account_proxy_on_credentials(
+    credentials: &mut AccountCredentials,
+    proxy: Option<HttpProxyConfig>,
+) {
+    let setting = AccountProxySetting {
+        mode: if proxy.is_some() {
+            AccountProxyMode::Custom
+        } else {
+            AccountProxyMode::Inherit
+        },
+        proxy,
+    };
+    set_account_proxy_setting_on_credentials(credentials, setting);
 }
 
 fn is_loopback_mail_host(host: &str) -> bool {
@@ -238,11 +287,17 @@ pub async fn add_account(
     // If any subsequent step fails, delete the account row to prevent half-creation
     if let Err(e) = (|| -> std::result::Result<(), PebbleError> {
         let proxy =
-            proxy_config_from_parts(request.proxy_host, request.proxy_port, "Account proxy")?
-                .map(mail_proxy_from_http);
+            proxy_config_from_parts(request.proxy_host, request.proxy_port, "Account proxy")?;
+        let proxy_mode = if proxy.is_some() {
+            AccountProxyMode::Custom
+        } else {
+            AccountProxyMode::Inherit
+        };
+        let proxy = proxy.map(mail_proxy_from_http);
 
         // Build typed IMAP + SMTP credentials
         let credentials = AccountCredentials {
+            proxy_mode,
             imap: ImapConfig {
                 host: request.imap_host,
                 port: request.imap_port,
@@ -327,6 +382,7 @@ pub async fn update_account(
             deserialize_account_credentials(&decrypted)?
         }
         None => AccountCredentials {
+            proxy_mode: AccountProxyMode::Inherit,
             imap: ImapConfig {
                 host: String::new(),
                 port: 0,
@@ -369,6 +425,11 @@ pub async fn update_account(
         creds.imap.security = sec;
     }
     if let Some(proxy) = &updated_proxy {
+        creds.proxy_mode = if proxy.is_some() {
+            AccountProxyMode::Custom
+        } else {
+            AccountProxyMode::Inherit
+        };
         creds.imap.proxy = proxy.clone();
     }
     if creds.imap.username.is_empty() {
@@ -407,6 +468,101 @@ pub async fn update_account(
     let encrypted = state.crypto.encrypt(&config_bytes)?;
     state.store.set_auth_data(&account_id, &encrypted)?;
 
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_account_proxy(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<Option<HttpProxyConfig>, PebbleError> {
+    Ok(get_account_proxy_setting(state, account_id).await?.proxy)
+}
+
+#[tauri::command]
+pub async fn get_account_proxy_setting(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<AccountProxySetting, PebbleError> {
+    let account = state
+        .store
+        .get_account(&account_id)?
+        .ok_or_else(|| PebbleError::Internal(format!("Account not found: {account_id}")))?;
+    if account.provider != ProviderType::Imap {
+        return Err(PebbleError::UnsupportedProvider(
+            "Use the OAuth account proxy commands for Gmail and Outlook accounts".to_string(),
+        ));
+    }
+
+    let Some(encrypted) = state.store.get_auth_data(&account_id)? else {
+        return Ok(AccountProxySetting {
+            mode: AccountProxyMode::Inherit,
+            proxy: None,
+        });
+    };
+    let decrypted = state.crypto.decrypt(&encrypted)?;
+    let credentials = deserialize_account_credentials(&decrypted)?;
+    Ok(account_proxy_setting_from_credentials(&credentials))
+}
+
+#[tauri::command]
+pub async fn update_account_proxy(
+    state: State<'_, AppState>,
+    account_id: String,
+    proxy_host: Option<String>,
+    proxy_port: Option<u16>,
+) -> std::result::Result<(), PebbleError> {
+    let proxy = proxy_config_from_parts(proxy_host, proxy_port, "Account proxy")?;
+    let mode = if proxy.is_some() {
+        AccountProxyMode::Custom
+    } else {
+        AccountProxyMode::Inherit
+    };
+    match proxy {
+        Some(proxy) => {
+            update_account_proxy_setting(
+                state,
+                account_id,
+                mode,
+                Some(proxy.host),
+                Some(proxy.port),
+            )
+            .await
+        }
+        None => update_account_proxy_setting(state, account_id, mode, None, None).await,
+    }
+}
+
+#[tauri::command]
+pub async fn update_account_proxy_setting(
+    state: State<'_, AppState>,
+    account_id: String,
+    mode: AccountProxyMode,
+    proxy_host: Option<String>,
+    proxy_port: Option<u16>,
+) -> std::result::Result<(), PebbleError> {
+    let account = state
+        .store
+        .get_account(&account_id)?
+        .ok_or_else(|| PebbleError::Internal(format!("Account not found: {account_id}")))?;
+    if account.provider != ProviderType::Imap {
+        return Err(PebbleError::UnsupportedProvider(
+            "Use the OAuth account proxy commands for Gmail and Outlook accounts".to_string(),
+        ));
+    }
+
+    let setting = account_proxy_setting_from_parts(mode, proxy_host, proxy_port, "Account proxy")?;
+    let Some(encrypted) = state.store.get_auth_data(&account_id)? else {
+        return Err(PebbleError::Internal(format!(
+            "No auth data found for account {account_id}"
+        )));
+    };
+    let decrypted = state.crypto.decrypt(&encrypted)?;
+    let mut credentials = deserialize_account_credentials(&decrypted)?;
+    set_account_proxy_setting_on_credentials(&mut credentials, setting);
+    let config_bytes = serialize_account_credentials(&credentials)?;
+    let encrypted = state.crypto.encrypt(&config_bytes)?;
+    state.store.set_auth_data(&account_id, &encrypted)?;
     Ok(())
 }
 
@@ -499,20 +655,14 @@ pub async fn test_account_connection(
         .get_auth_data(&account_id)?
         .ok_or_else(|| PebbleError::Internal("No auth data found".into()))?;
     let decrypted = state.crypto.decrypt(&existing)?;
-    let config: serde_json::Value = serde_json::from_slice(&decrypted)
-        .map_err(|e| PebbleError::Internal(format!("Failed to parse config: {e}")))?;
-    let mut imap_config: pebble_mail::ImapConfig = serde_json::from_value(
-        config
-            .get("imap")
-            .cloned()
-            .ok_or_else(|| PebbleError::Internal("No IMAP config".into()))?,
-    )
-    .map_err(|e| PebbleError::Internal(format!("Failed to parse IMAP config: {e}")))?;
-    if imap_config.proxy.is_none() {
-        imap_config.proxy = effective_proxy_for_account(&state.crypto, &state.store, None)?
-            .map(mail_proxy_from_http);
-    }
-    pebble_mail::ImapProvider::test_connection(&imap_config).await
+    let mut credentials = deserialize_account_credentials(&decrypted)?;
+    credentials.imap.proxy = resolve_mail_proxy_from_mode(
+        &state.crypto,
+        &state.store,
+        credentials.proxy_mode,
+        credentials.imap.proxy.clone(),
+    )?;
+    pebble_mail::ImapProvider::test_connection(&credentials.imap).await
 }
 
 #[tauri::command]
@@ -600,6 +750,7 @@ mod tests {
     #[test]
     fn account_credentials_storage_round_trip_preserves_passwords() {
         let credentials = AccountCredentials {
+            proxy_mode: AccountProxyMode::Inherit,
             imap: ImapConfig {
                 host: "imap.example.com".to_string(),
                 port: 993,
@@ -623,5 +774,77 @@ mod tests {
 
         assert_eq!(decoded.imap.password, "imap-secret");
         assert_eq!(decoded.smtp.password, "smtp-secret");
+    }
+
+    #[test]
+    fn account_proxy_from_credentials_reads_imap_proxy() {
+        let credentials = AccountCredentials {
+            proxy_mode: AccountProxyMode::Inherit,
+            imap: ImapConfig {
+                host: "imap.example.com".to_string(),
+                port: 993,
+                username: "user@example.com".to_string(),
+                password: "imap-secret".to_string(),
+                security: ConnectionSecurity::Tls,
+                proxy: Some(ProxyConfig {
+                    host: "127.0.0.1".to_string(),
+                    port: 7890,
+                }),
+            },
+            smtp: SmtpConfig {
+                host: "smtp.example.com".to_string(),
+                port: 465,
+                username: "user@example.com".to_string(),
+                password: "smtp-secret".to_string(),
+                security: ConnectionSecurity::Tls,
+                proxy: None,
+            },
+        };
+
+        let proxy = account_proxy_from_credentials(&credentials).unwrap();
+
+        assert_eq!(proxy.host, "127.0.0.1");
+        assert_eq!(proxy.port, 7890);
+    }
+
+    #[test]
+    fn set_account_proxy_on_credentials_mirrors_imap_and_smtp() {
+        let mut credentials = AccountCredentials {
+            proxy_mode: AccountProxyMode::Inherit,
+            imap: ImapConfig {
+                host: "imap.example.com".to_string(),
+                port: 993,
+                username: "user@example.com".to_string(),
+                password: "imap-secret".to_string(),
+                security: ConnectionSecurity::Tls,
+                proxy: None,
+            },
+            smtp: SmtpConfig {
+                host: "smtp.example.com".to_string(),
+                port: 465,
+                username: "user@example.com".to_string(),
+                password: "smtp-secret".to_string(),
+                security: ConnectionSecurity::Tls,
+                proxy: None,
+            },
+        };
+
+        set_account_proxy_on_credentials(
+            &mut credentials,
+            Some(pebble_core::HttpProxyConfig {
+                host: "10.0.0.2".to_string(),
+                port: 1080,
+            }),
+        );
+
+        assert_eq!(credentials.imap.proxy.as_ref().unwrap().host, "10.0.0.2");
+        assert_eq!(credentials.smtp.proxy.as_ref().unwrap().port, 1080);
+        assert_eq!(credentials.proxy_mode, AccountProxyMode::Custom);
+
+        set_account_proxy_on_credentials(&mut credentials, None);
+
+        assert!(credentials.imap.proxy.is_none());
+        assert!(credentials.smtp.proxy.is_none());
+        assert_eq!(credentials.proxy_mode, AccountProxyMode::Inherit);
     }
 }

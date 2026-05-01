@@ -13,7 +13,7 @@ import { useKanbanStore } from "../stores/kanban.store";
 import { useKeyboard } from "../hooks/useKeyboard";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { buildCommands } from "../features/command-palette/commands";
-import { useDeferredValue, useEffect, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
+import { useEffect, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
 import { createLazyViewPreloader, scheduleLazyViewPreload } from "./lazyViewPreload";
 import { useRealtimePreferenceSync } from "./useRealtimePreferenceSync";
 import { useRealtimeSyncTriggers } from "./useRealtimeSyncTriggers";
@@ -51,7 +51,7 @@ import { setNotificationsEnabled as setBackendNotificationsEnabled } from "@/lib
 
 export default function Layout() {
   const activeView = useUIStore((s) => s.activeView);
-  const displayedView = useDeferredValue(activeView);
+  const displayedView = activeView;
   const setActiveView = useUIStore((s) => s.setActiveView);
   const theme = useUIStore((s) => s.theme);
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled);

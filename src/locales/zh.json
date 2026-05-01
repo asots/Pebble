@@ -129,6 +129,7 @@
   "settings": {
     "accounts": "账户",
     "general": "通用",
+    "proxy": "代理",
     "appearance": "外观",
     "shortcuts": "快捷键",
     "rules": "规则",
@@ -160,6 +161,8 @@
     "realtimeModeManualDesc": "停止后台检查。使用立即同步时只运行一轮。",
     "notifications": "通知",
     "enableNotifications": "启用桌面通知",
+    "closeBehavior": "关闭行为",
+    "quitOnClose": "关闭窗口时退出应用",
     "folderCounts": "文件夹计数",
     "showUnreadCount": "在侧边栏显示未读数徽章",
     "globalProxy": "全局代理",
@@ -167,6 +170,12 @@
     "globalProxyHost": "SOCKS5 代理",
     "globalProxyPort": "端口",
     "globalProxySaved": "全局代理已保存",
+    "accountProxy": "账号代理",
+    "accountProxies": "账号代理",
+    "accountProxiesDesc": "为单个账号设置代理行为，可以继承全局代理、禁用代理或使用自定义 SOCKS5 代理。",
+    "accountProxySaved": "账号代理已保存",
+    "inheritsGlobalProxy": "为此账号选择继承、禁用或自定义 SOCKS5 代理。",
+    "saveAccountProxy": "保存账号代理",
     "cloudSync": "设置备份",
     "about": "关于",
     "privacy": "隐私",
@@ -179,7 +188,11 @@
     "optional": "可选",
     "oauthAccountNote": "此账户使用 OAuth 登录。服务商登录、密码和 IMAP/SMTP 设置由服务商管理。代理留空时会继承全局 SOCKS5 代理。",
     "deleteAccountSuccess": "账户已成功移除",
-    "deleteAccountFailed": "移除账户失败"
+    "deleteAccountFailed": "移除账户失败",
+    "accountProxyMode": "代理模式",
+    "accountProxyModeInherit": "继承全局代理",
+    "accountProxyModeDisabled": "不使用代理",
+    "accountProxyModeCustom": "使用自定义代理"
   },
   "cloudSync": {
     "title": "设置备份",

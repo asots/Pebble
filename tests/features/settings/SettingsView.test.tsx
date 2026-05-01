@@ -13,6 +13,7 @@ vi.mock("react-i18next", () => ({
       const labels: Record<string, string> = {
         "settings.accounts": "Accounts",
         "settings.general": "General",
+        "settings.proxy": "Proxy",
         "settings.appearance": "Appearance",
         "settings.privacy": "Privacy",
         "settings.rules": "Rules",
@@ -34,6 +35,10 @@ vi.mock("../../../src/features/settings/AccountsTab", () => ({
 
 vi.mock("../../../src/features/settings/GeneralTab", () => ({
   default: () => <div>General panel</div>,
+}));
+
+vi.mock("../../../src/features/settings/ProxyTab", () => ({
+  default: () => <div>Proxy panel</div>,
 }));
 
 vi.mock("../../../src/features/settings/AppearanceTab", () => ({
@@ -83,6 +88,16 @@ describe("SettingsView", () => {
     expect(screen.getByText("Remote queue panel")).toBeTruthy();
   });
 
+  it("exposes global proxy settings as a dedicated settings tab", () => {
+    render(<SettingsView />);
+
+    const tab = screen.getByRole("tab", { name: "Proxy" });
+    fireEvent.click(tab);
+
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Proxy panel")).toBeTruthy();
+  });
+
   it("does not animate all properties on settings tabs", () => {
     render(<SettingsView />);
 
@@ -91,5 +106,16 @@ describe("SettingsView", () => {
     expect(tab.style.transition).not.toContain("all");
     expect(tab.style.transition).toContain("background-color");
     expect(tab.style.transition).toContain("border-color");
+  });
+
+  it("keeps the settings panel vertically scrollable without horizontal overflow", () => {
+    render(<SettingsView />);
+
+    const panel = screen.getByRole("tabpanel");
+
+    expect(panel.className).toContain("settings-panel-scroll");
+    expect(panel.style.overflowY).toBe("auto");
+    expect(panel.style.overflowX).toBe("hidden");
+    expect(panel.style.boxSizing).toBe("border-box");
   });
 });
