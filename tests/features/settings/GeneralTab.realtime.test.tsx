@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GeneralTab from "../../../src/features/settings/GeneralTab";
 import { useUIStore } from "../../../src/stores/ui.store";
@@ -37,8 +38,12 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+const mockInvoke = vi.mocked(invoke);
+
 describe("GeneralTab realtime mode", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    mockInvoke.mockResolvedValue(null);
     localStorage.clear();
     useUIStore.setState({
       pollInterval: 15,
@@ -52,8 +57,12 @@ describe("GeneralTab realtime mode", () => {
     expect(useUIStore.getState().realtimeMode).toBe("realtime");
   });
 
-  it("shows realtime strategy choices and persists selection", () => {
+  it("shows realtime strategy choices and persists selection", async () => {
     render(<GeneralTab />);
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("get_global_proxy");
+    });
 
     expect(screen.getByRole("button", { name: "Realtime (recommended)" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Balanced" })).toBeTruthy();
@@ -70,8 +79,12 @@ describe("GeneralTab realtime mode", () => {
     expect(localStorage.getItem("pebble-realtime-mode")).toBe("battery");
   });
 
-  it("shows the persisted desktop notification state and updates it through the UI store", () => {
+  it("shows the persisted desktop notification state and updates it through the UI store", async () => {
     render(<GeneralTab />);
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("get_global_proxy");
+    });
 
     const checkbox = screen.getByRole("checkbox", { name: "Enable desktop notifications" });
     expect((checkbox as HTMLInputElement).checked).toBe(true);

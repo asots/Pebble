@@ -5,10 +5,11 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
+use super::http_client_with_proxy;
 use pebble_core::traits::*;
 use pebble_core::{
     new_id, now_timestamp, Category, DraftMessage, EmailAddress, Folder, FolderRole, FolderType,
-    Message, PebbleError, ProviderCapabilities, Result,
+    HttpProxyConfig, Message, PebbleError, ProviderCapabilities, Result,
 };
 
 const GRAPH_API_BASE: &str = "https://graph.microsoft.com/v1.0/me";
@@ -274,6 +275,18 @@ impl OutlookProvider {
         }
     }
 
+    pub fn new_with_proxy(
+        access_token: String,
+        account_id: String,
+        proxy: Option<HttpProxyConfig>,
+    ) -> Result<Self> {
+        Ok(Self {
+            client: http_client_with_proxy(proxy.as_ref())?,
+            access_token: RwLock::new(access_token),
+            account_id,
+        })
+    }
+
     pub fn set_access_token(&self, token: String) {
         *self.access_token.write().unwrap_or_else(|e| e.into_inner()) = token;
     }
@@ -502,6 +515,42 @@ impl OutlookProvider {
             created_at: now,
             updated_at: now,
         }
+    }
+}
+
+#[cfg(test)]
+mod proxy_tests {
+    use super::*;
+    use pebble_core::HttpProxyConfig;
+
+    #[test]
+    fn outlook_provider_accepts_socks5_proxy() {
+        let provider = OutlookProvider::new_with_proxy(
+            "access-token".to_string(),
+            "account-id".to_string(),
+            Some(HttpProxyConfig {
+                host: "127.0.0.1".to_string(),
+                port: 7890,
+            }),
+        );
+
+        assert!(provider.is_ok());
+    }
+
+    #[test]
+    fn outlook_provider_rejects_invalid_proxy() {
+        let err = OutlookProvider::new_with_proxy(
+            "access-token".to_string(),
+            "account-id".to_string(),
+            Some(HttpProxyConfig {
+                host: " ".to_string(),
+                port: 0,
+            }),
+        )
+        .err()
+        .unwrap();
+
+        assert!(err.to_string().contains("Proxy host"));
     }
 }
 

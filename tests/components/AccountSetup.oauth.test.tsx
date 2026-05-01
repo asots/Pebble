@@ -66,7 +66,7 @@ describe("AccountSetup OAuth", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in with Google" }));
 
     await waitFor(() => {
-      expect(completeOAuthFlow).toHaveBeenCalledWith("gmail", "", "");
+      expect(completeOAuthFlow).toHaveBeenCalledWith("gmail", "", "", undefined, undefined);
     });
     await waitFor(() => {
       expect(startSync).toHaveBeenCalledWith("account-1", 3);
@@ -80,5 +80,31 @@ describe("AccountSetup OAuth", () => {
     });
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["folders"] });
+  });
+
+  it("passes proxy settings to OAuth sign-in", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AccountSetup onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("SOCKS5 Proxy"), {
+      target: { value: "127.0.0.1" },
+    });
+    fireEvent.change(screen.getByLabelText("Port"), {
+      target: { value: "7890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Google" }));
+
+    await waitFor(() => {
+      expect(completeOAuthFlow).toHaveBeenCalledWith("gmail", "", "", "127.0.0.1", 7890);
+    });
   });
 });

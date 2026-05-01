@@ -1,8 +1,13 @@
+use super::network::{
+    effective_proxy_for_account, proxy_config_from_parts, resolve_effective_proxy,
+};
 use crate::state::AppState;
-use pebble_core::{new_id, now_timestamp, Account, OAuthTokens, PebbleError, ProviderType};
+use pebble_core::{
+    new_id, now_timestamp, Account, HttpProxyConfig, OAuthTokens, PebbleError, ProviderType,
+};
 use pebble_crypto::CryptoService;
 use pebble_mail::gmail_sync::TokenRefresher;
-use pebble_oauth::{OAuthConfig, OAuthError, OAuthManager};
+use pebble_oauth::{build_http_client, OAuthConfig, OAuthError, OAuthManager, OAuthNetworkConfig};
 use pebble_store::Store;
 use std::sync::Arc;
 use tauri::State;
@@ -24,6 +29,7 @@ fn constant_time_eq(left: &str, right: &str) -> bool {
 async fn fetch_userinfo(
     provider: &str,
     access_token: &str,
+    network: &OAuthNetworkConfig,
 ) -> Result<(String, String), PebbleError> {
     let url = match provider.to_lowercase().as_str() {
         "gmail" => "https://www.googleapis.com/oauth2/v2/userinfo",
@@ -31,7 +37,8 @@ async fn fetch_userinfo(
         _ => return Err(PebbleError::UnsupportedProvider(provider.to_string())),
     };
 
-    let client = reqwest::Client::new();
+    let client = build_http_client(network)
+        .map_err(|e| PebbleError::Network(format!("Userinfo HTTP client failed: {e}")))?;
     let resp: serde_json::Value = client
         .get(url)
         .bearer_auth(access_token)
@@ -57,6 +64,13 @@ async fn fetch_userinfo(
 
     debug!("Fetched userinfo from OAuth provider");
     Ok((email, name))
+}
+
+fn oauth_proxy_from_parts(
+    proxy_host: Option<String>,
+    proxy_port: Option<u16>,
+) -> Result<Option<HttpProxyConfig>, PebbleError> {
+    proxy_config_from_parts(proxy_host, proxy_port, "OAuth proxy")
 }
 
 /// OAuth config for Gmail (Google).
@@ -276,6 +290,23 @@ pub(crate) fn provider_slug(provider: &ProviderType) -> &'static str {
     }
 }
 
+fn ensure_oauth_account_provider(state: &AppState, account_id: &str) -> Result<(), PebbleError> {
+    let account = state
+        .store
+        .get_account(account_id)?
+        .ok_or_else(|| PebbleError::Internal(format!("Account not found: {account_id}")))?;
+    if matches!(
+        account.provider,
+        ProviderType::Gmail | ProviderType::Outlook
+    ) {
+        Ok(())
+    } else {
+        Err(PebbleError::UnsupportedProvider(
+            provider_slug(&account.provider).to_string(),
+        ))
+    }
+}
+
 fn persist_oauth_tokens(
     state: &AppState,
     account_id: &str,
@@ -293,11 +324,88 @@ fn persist_oauth_tokens_raw(
     account_id: &str,
     tokens: &OAuthTokens,
 ) -> Result<(), PebbleError> {
-    let config_bytes = serde_json::to_vec(tokens)
-        .map_err(|e| PebbleError::Internal(format!("Failed to serialize tokens: {e}")))?;
+    let proxy =
+        read_stored_oauth_auth_data_raw(crypto, store, account_id)?.and_then(|stored| stored.proxy);
+    let stored = StoredOAuthAuthData::from_tokens(tokens.clone(), proxy);
+    persist_stored_oauth_auth_data_raw(crypto, store, account_id, &stored)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct StoredOAuthAuthData {
+    access_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expires_at: Option<i64>,
+    #[serde(default)]
+    scopes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    proxy: Option<HttpProxyConfig>,
+}
+
+impl StoredOAuthAuthData {
+    fn from_tokens(tokens: OAuthTokens, proxy: Option<HttpProxyConfig>) -> Self {
+        Self {
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_at: tokens.expires_at,
+            scopes: tokens.scopes,
+            proxy,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_tokens(mut self, tokens: OAuthTokens) -> Self {
+        self.access_token = tokens.access_token;
+        self.refresh_token = tokens.refresh_token;
+        self.expires_at = tokens.expires_at;
+        self.scopes = tokens.scopes;
+        self
+    }
+
+    fn with_proxy(mut self, proxy: Option<HttpProxyConfig>) -> Self {
+        self.proxy = proxy;
+        self
+    }
+
+    fn tokens(&self) -> OAuthTokens {
+        OAuthTokens {
+            access_token: self.access_token.clone(),
+            refresh_token: self.refresh_token.clone(),
+            expires_at: self.expires_at,
+            scopes: self.scopes.clone(),
+        }
+    }
+}
+
+fn decode_stored_oauth_auth_data(bytes: &[u8]) -> Result<StoredOAuthAuthData, PebbleError> {
+    serde_json::from_slice(bytes)
+        .map_err(|e| PebbleError::Internal(format!("Failed to parse OAuth auth data: {e}")))
+}
+
+fn persist_stored_oauth_auth_data_raw(
+    crypto: &CryptoService,
+    store: &Store,
+    account_id: &str,
+    stored: &StoredOAuthAuthData,
+) -> Result<(), PebbleError> {
+    let config_bytes = serde_json::to_vec(stored)
+        .map_err(|e| PebbleError::Internal(format!("Failed to serialize OAuth auth data: {e}")))?;
     let encrypted = crypto.encrypt(&config_bytes)?;
     store.set_auth_data(account_id, &encrypted)?;
     Ok(())
+}
+
+fn read_stored_oauth_auth_data_raw(
+    crypto: &CryptoService,
+    store: &Store,
+    account_id: &str,
+) -> Result<Option<StoredOAuthAuthData>, PebbleError> {
+    let Some(encrypted) = store.get_auth_data(account_id)? else {
+        return Ok(None);
+    };
+    let decrypted = crypto.decrypt(&encrypted)?;
+    decode_stored_oauth_auth_data(&decrypted).map(Some)
 }
 
 /// Decoded view of an account's stored OAuth token blob.
@@ -305,6 +413,12 @@ pub(crate) struct DecodedOAuthTokens {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub expires_at: Option<i64>,
+    pub proxy: Option<HttpProxyConfig>,
+}
+
+pub(crate) struct ResolvedOAuthAuth {
+    pub tokens: OAuthTokens,
+    pub proxy: Option<HttpProxyConfig>,
 }
 
 /// Read and decrypt an account's OAuth token blob into its components.
@@ -316,20 +430,14 @@ pub(crate) fn decode_oauth_account_tokens(
     state: &AppState,
     account_id: &str,
 ) -> Result<DecodedOAuthTokens, PebbleError> {
-    let encrypted = state
-        .store
-        .get_auth_data(account_id)?
+    let stored = read_stored_oauth_auth_data_raw(&state.crypto, &state.store, account_id)?
         .ok_or_else(|| PebbleError::Internal(format!("No auth data for account {account_id}")))?;
-    let decrypted = state.crypto.decrypt(&encrypted)?;
-    let token_data: serde_json::Value = serde_json::from_slice(&decrypted)
-        .map_err(|e| PebbleError::Internal(format!("Failed to parse token data: {e}")))?;
+    let proxy = effective_proxy_for_account(&state.crypto, &state.store, stored.proxy.clone())?;
     Ok(DecodedOAuthTokens {
-        access_token: token_data["access_token"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
-        refresh_token: token_data["refresh_token"].as_str().map(|s| s.to_string()),
-        expires_at: token_data["expires_at"].as_i64(),
+        access_token: stored.access_token,
+        refresh_token: stored.refresh_token,
+        expires_at: stored.expires_at,
+        proxy,
     })
 }
 
@@ -360,24 +468,32 @@ pub(crate) fn build_oauth_token_refresher(
                     // Read the latest refresh token from the encrypted store.
                     // OAuth providers (especially Microsoft) may rotate refresh tokens
                     // on each use, so the initially captured token may be stale.
-                    let rt = match store.get_auth_data(&account_id)? {
+                    let (rt, network) = match store.get_auth_data(&account_id)? {
                         Some(encrypted) => {
                             let decrypted = crypto.decrypt(&encrypted)?;
-                            let token_data: serde_json::Value = serde_json::from_slice(&decrypted)
-                                .map_err(|e| {
-                                    PebbleError::Internal(format!(
-                                        "Failed to parse token data: {e}"
-                                    ))
-                                })?;
-                            token_data["refresh_token"]
-                                .as_str()
-                                .map(|s| s.to_string())
-                                .unwrap_or(initial_rt)
+                            let stored = decode_stored_oauth_auth_data(&decrypted)?;
+                            let effective_proxy =
+                                effective_proxy_for_account(&crypto, &store, stored.proxy.clone())?;
+                            (
+                                stored.refresh_token.clone().unwrap_or(initial_rt),
+                                OAuthNetworkConfig {
+                                    proxy: effective_proxy,
+                                },
+                            )
                         }
-                        None => initial_rt,
+                        None => {
+                            let effective_proxy =
+                                effective_proxy_for_account(&crypto, &store, None)?;
+                            (
+                                initial_rt,
+                                OAuthNetworkConfig {
+                                    proxy: effective_proxy,
+                                },
+                            )
+                        }
                     };
 
-                    let manager = OAuthManager::new(config);
+                    let manager = OAuthManager::new_with_network(config, network);
                     let token_pair = manager
                         .refresh_token(&rt)
                         .await
@@ -400,17 +516,20 @@ pub(crate) fn build_oauth_token_refresher(
     }
 }
 
-pub(crate) async fn ensure_account_oauth_tokens(
+pub(crate) async fn ensure_account_oauth_auth(
     state: &AppState,
     account_id: &str,
     provider: &str,
-) -> Result<OAuthTokens, PebbleError> {
-    let encrypted = state.store.get_auth_data(account_id)?.ok_or_else(|| {
-        PebbleError::Internal(format!("No auth data found for account {account_id}"))
-    })?;
-    let decrypted = state.crypto.decrypt(&encrypted)?;
-    let mut tokens: OAuthTokens = serde_json::from_slice(&decrypted)
-        .map_err(|e| PebbleError::Internal(format!("Failed to parse OAuth tokens: {e}")))?;
+) -> Result<ResolvedOAuthAuth, PebbleError> {
+    let stored = read_stored_oauth_auth_data_raw(&state.crypto, &state.store, account_id)?
+        .ok_or_else(|| {
+            PebbleError::Internal(format!("No auth data found for account {account_id}"))
+        })?;
+    let proxy = effective_proxy_for_account(&state.crypto, &state.store, stored.proxy.clone())?;
+    let network = OAuthNetworkConfig {
+        proxy: proxy.clone(),
+    };
+    let mut tokens = stored.tokens();
 
     let needs_refresh = tokens.refresh_token.is_some()
         && tokens
@@ -420,7 +539,7 @@ pub(crate) async fn ensure_account_oauth_tokens(
 
     if needs_refresh {
         let refresh_token = tokens.refresh_token.clone().unwrap_or_default();
-        let manager = OAuthManager::new(config_for_provider(provider)?);
+        let manager = OAuthManager::new_with_network(config_for_provider(provider)?, network);
         let token_pair = manager
             .refresh_token(&refresh_token)
             .await
@@ -435,7 +554,7 @@ pub(crate) async fn ensure_account_oauth_tokens(
         persist_oauth_tokens(state, account_id, &tokens)?;
     }
 
-    Ok(tokens)
+    Ok(ResolvedOAuthAuth { tokens, proxy })
 }
 
 /// Complete the OAuth flow end-to-end.
@@ -449,8 +568,18 @@ pub async fn complete_oauth_flow(
     provider: String,
     email: String,
     display_name: String,
+    proxy_host: Option<String>,
+    proxy_port: Option<u16>,
 ) -> std::result::Result<Account, PebbleError> {
     let mut config = config_for_provider(&provider)?;
+    let account_proxy = oauth_proxy_from_parts(proxy_host, proxy_port)?;
+    let effective_proxy = resolve_effective_proxy(
+        account_proxy.clone(),
+        super::network::get_global_proxy_raw(&state.crypto, &state.store)?,
+    );
+    let network = OAuthNetworkConfig {
+        proxy: effective_proxy,
+    };
 
     // Bind the redirect listener first so the OS assigns an available port.
     // The actual port is then used in the redirect URI sent to the provider.
@@ -459,7 +588,7 @@ pub async fn complete_oauth_flow(
         .map_err(|e| PebbleError::OAuth(format!("Failed to bind redirect listener: {e}")))?;
     config.redirect_port = bound.port;
 
-    let manager = OAuthManager::new(config);
+    let manager = OAuthManager::new_with_network(config, network.clone());
 
     // Start auth flow (generates PKCE challenge)
     let (auth_url, pkce_state) = manager
@@ -488,7 +617,7 @@ pub async fn complete_oauth_flow(
         .map_err(|e| PebbleError::OAuth(token_exchange_error_message(&provider, &e)))?;
 
     // Fetch user info from Google/Microsoft to get actual email and display name
-    let (real_email, real_name) = fetch_userinfo(&provider, &token_pair.access_token)
+    let (real_email, real_name) = fetch_userinfo(&provider, &token_pair.access_token, &network)
         .await
         .unwrap_or_else(|_| (email.clone(), display_name.clone()));
 
@@ -525,7 +654,8 @@ pub async fn complete_oauth_flow(
             expires_at: token_pair.expires_at,
             scopes: token_pair.scopes,
         };
-        persist_oauth_tokens(&state, &account.id, &tokens)?;
+        let stored = StoredOAuthAuthData::from_tokens(tokens, account_proxy);
+        persist_stored_oauth_auth_data_raw(&state.crypto, &state.store, &account.id, &stored)?;
 
         // Store provider metadata in sync_state
         let slug = provider_slug(&account.provider).to_string();
@@ -540,6 +670,36 @@ pub async fn complete_oauth_flow(
     }
 
     Ok(account)
+}
+
+#[tauri::command]
+pub async fn get_oauth_account_proxy(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<Option<HttpProxyConfig>, PebbleError> {
+    ensure_oauth_account_provider(&state, &account_id)?;
+    let stored = read_stored_oauth_auth_data_raw(&state.crypto, &state.store, &account_id)?
+        .ok_or_else(|| {
+            PebbleError::Internal(format!("No auth data found for account {account_id}"))
+        })?;
+    Ok(stored.proxy)
+}
+
+#[tauri::command]
+pub async fn update_oauth_account_proxy(
+    state: State<'_, AppState>,
+    account_id: String,
+    proxy_host: Option<String>,
+    proxy_port: Option<u16>,
+) -> std::result::Result<(), PebbleError> {
+    ensure_oauth_account_provider(&state, &account_id)?;
+    let proxy = oauth_proxy_from_parts(proxy_host, proxy_port)?;
+    let stored = read_stored_oauth_auth_data_raw(&state.crypto, &state.store, &account_id)?
+        .ok_or_else(|| {
+            PebbleError::Internal(format!("No auth data found for account {account_id}"))
+        })?
+        .with_proxy(proxy);
+    persist_stored_oauth_auth_data_raw(&state.crypto, &state.store, &account_id, &stored)
 }
 
 #[cfg(test)]
@@ -669,6 +829,111 @@ MICROSOFT_CLIENT_SECRET='microsoft-secret'
 
         assert!(gmail_section.contains(r#"option_env!("GOOGLE_CLIENT_SECRET")"#));
         assert!(outlook_section.contains(r#"option_env!("MICROSOFT_CLIENT_SECRET")"#));
+    }
+
+    #[test]
+    fn stored_oauth_auth_data_decodes_legacy_token_blob_without_proxy() {
+        let legacy = OAuthTokens {
+            access_token: "access".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            expires_at: Some(1234),
+            scopes: vec!["scope".to_string()],
+        };
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+
+        let stored = decode_stored_oauth_auth_data(&bytes).unwrap();
+
+        assert_eq!(stored.access_token, "access");
+        assert_eq!(stored.refresh_token.as_deref(), Some("refresh"));
+        assert_eq!(stored.expires_at, Some(1234));
+        assert_eq!(stored.scopes, vec!["scope"]);
+        assert_eq!(stored.proxy, None);
+    }
+
+    #[test]
+    fn stored_oauth_auth_data_replaces_tokens_and_preserves_proxy() {
+        let stored = StoredOAuthAuthData {
+            access_token: "old-access".to_string(),
+            refresh_token: Some("old-refresh".to_string()),
+            expires_at: Some(1),
+            scopes: vec!["old-scope".to_string()],
+            proxy: Some(pebble_core::HttpProxyConfig {
+                host: "127.0.0.1".to_string(),
+                port: 7890,
+            }),
+        };
+        let replacement = OAuthTokens {
+            access_token: "new-access".to_string(),
+            refresh_token: Some("new-refresh".to_string()),
+            expires_at: Some(2),
+            scopes: vec!["new-scope".to_string()],
+        };
+
+        let updated = stored.with_tokens(replacement);
+
+        assert_eq!(updated.access_token, "new-access");
+        assert_eq!(updated.refresh_token.as_deref(), Some("new-refresh"));
+        assert_eq!(updated.expires_at, Some(2));
+        assert_eq!(updated.scopes, vec!["new-scope"]);
+        assert_eq!(
+            updated.proxy,
+            Some(pebble_core::HttpProxyConfig {
+                host: "127.0.0.1".to_string(),
+                port: 7890,
+            })
+        );
+    }
+
+    #[test]
+    fn oauth_proxy_from_parts_accepts_complete_proxy() {
+        let proxy = oauth_proxy_from_parts(Some(" 127.0.0.1 ".to_string()), Some(7890))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(proxy.host, "127.0.0.1");
+        assert_eq!(proxy.port, 7890);
+    }
+
+    #[test]
+    fn oauth_proxy_from_parts_rejects_partial_proxy() {
+        let err = oauth_proxy_from_parts(Some("127.0.0.1".to_string()), None).unwrap_err();
+
+        assert!(err.to_string().contains("proxy port"));
+    }
+
+    #[test]
+    fn oauth_proxy_from_parts_rejects_invalid_proxy() {
+        let err = oauth_proxy_from_parts(Some(" ".to_string()), Some(0)).unwrap_err();
+
+        assert!(err.to_string().contains("Proxy host"));
+    }
+
+    #[test]
+    fn stored_oauth_auth_data_replaces_proxy_and_preserves_tokens() {
+        let stored = StoredOAuthAuthData {
+            access_token: "access".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            expires_at: Some(1234),
+            scopes: vec!["scope".to_string()],
+            proxy: None,
+        };
+
+        let updated = stored.with_proxy(Some(pebble_core::HttpProxyConfig {
+            host: "127.0.0.1".to_string(),
+            port: 7890,
+        }));
+
+        assert_eq!(updated.access_token, "access");
+        assert_eq!(updated.refresh_token.as_deref(), Some("refresh"));
+        assert_eq!(updated.expires_at, Some(1234));
+        assert_eq!(updated.scopes, vec!["scope"]);
+        assert_eq!(
+            updated.proxy,
+            Some(pebble_core::HttpProxyConfig {
+                host: "127.0.0.1".to_string(),
+                port: 7890,
+            })
+        );
     }
 
     #[test]

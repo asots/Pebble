@@ -19,6 +19,29 @@ pub enum ProviderType {
     Outlook,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HttpProxyConfig {
+    pub host: String,
+    pub port: u16,
+}
+
+impl HttpProxyConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.host.trim().is_empty() {
+            return Err("Proxy host is required".to_string());
+        }
+        if self.port == 0 {
+            return Err("Proxy port must be between 1 and 65535".to_string());
+        }
+        Ok(())
+    }
+
+    pub fn socks5h_uri(&self) -> Result<String, String> {
+        self.validate()?;
+        Ok(format!("socks5h://{}:{}", self.host.trim(), self.port))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Folder {
     pub id: String,

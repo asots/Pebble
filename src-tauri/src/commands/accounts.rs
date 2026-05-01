@@ -1,4 +1,8 @@
-use crate::commands::oauth::ensure_account_oauth_tokens;
+use crate::commands::network::{
+    effective_proxy_for_account, get_global_proxy_raw, mail_proxy_from_http,
+    proxy_config_from_parts, resolve_effective_proxy,
+};
+use crate::commands::oauth::ensure_account_oauth_auth;
 use crate::state::AppState;
 use pebble_core::traits::FolderProvider;
 use pebble_core::{new_id, now_timestamp, Account, PebbleError, ProviderType};
@@ -233,11 +237,9 @@ pub async fn add_account(
 
     // If any subsequent step fails, delete the account row to prevent half-creation
     if let Err(e) = (|| -> std::result::Result<(), PebbleError> {
-        // Build proxy config if provided
-        let proxy = match (request.proxy_host, request.proxy_port) {
-            (Some(h), Some(p)) if !h.is_empty() => Some(ProxyConfig { host: h, port: p }),
-            _ => None,
-        };
+        let proxy =
+            proxy_config_from_parts(request.proxy_host, request.proxy_port, "Account proxy")?
+                .map(mail_proxy_from_http);
 
         // Build typed IMAP + SMTP credentials
         let credentials = AccountCredentials {
@@ -344,6 +346,15 @@ pub async fn update_account(
         },
     };
 
+    let updated_proxy = if proxy_host.is_some() || proxy_port.is_some() {
+        Some(
+            proxy_config_from_parts(proxy_host.clone(), proxy_port, "Account proxy")?
+                .map(mail_proxy_from_http),
+        )
+    } else {
+        None
+    };
+
     // IMAP side
     if let Some(h) = imap_host {
         creds.imap.host = h;
@@ -357,14 +368,8 @@ pub async fn update_account(
     if let Some(sec) = imap_security {
         creds.imap.security = sec;
     }
-    if proxy_host.is_some() || proxy_port.is_some() {
-        creds.imap.proxy = match (&proxy_host, &proxy_port) {
-            (Some(h), Some(p)) if !h.is_empty() => Some(ProxyConfig {
-                host: h.clone(),
-                port: *p,
-            }),
-            _ => None,
-        };
+    if let Some(proxy) = &updated_proxy {
+        creds.imap.proxy = proxy.clone();
     }
     if creds.imap.username.is_empty() {
         creds.imap.username = email.clone();
@@ -384,8 +389,8 @@ pub async fn update_account(
         creds.smtp.security = sec;
     }
     // Mirror IMAP proxy to SMTP — both connections share the same network path.
-    if proxy_host.is_some() || proxy_port.is_some() {
-        creds.smtp.proxy = creds.imap.proxy.clone();
+    if let Some(proxy) = updated_proxy {
+        creds.smtp.proxy = proxy;
     }
     if creds.smtp.username.is_empty() {
         creds.smtp.username = email.clone();
@@ -422,14 +427,21 @@ pub struct TestConnectionRequest {
 
 #[tauri::command]
 pub async fn test_imap_connection(
+    state: State<'_, AppState>,
     request: TestConnectionRequest,
 ) -> std::result::Result<String, PebbleError> {
     validate_connection_security("IMAP", &request.imap_host, &request.imap_security)?;
 
-    let proxy = match (request.proxy_host, request.proxy_port) {
-        (Some(h), Some(p)) if !h.is_empty() => Some(pebble_mail::ProxyConfig { host: h, port: p }),
-        _ => None,
-    };
+    let requested_proxy = proxy_config_from_parts(
+        request.proxy_host,
+        request.proxy_port,
+        "Connection test proxy",
+    )?;
+    let proxy = resolve_effective_proxy(
+        requested_proxy,
+        get_global_proxy_raw(&state.crypto, &state.store)?,
+    )
+    .map(mail_proxy_from_http);
     let has_credentials = request.username.as_ref().is_some_and(|u| !u.is_empty())
         && request.password.as_ref().is_some_and(|p| !p.is_empty());
     let config = pebble_mail::ImapConfig {
@@ -458,8 +470,8 @@ pub async fn test_account_connection(
         .ok_or_else(|| PebbleError::Internal(format!("Account not found: {account_id}")))?;
 
     if matches!(account.provider, ProviderType::Gmail) {
-        let tokens = ensure_account_oauth_tokens(&state, &account_id, "gmail").await?;
-        let provider = GmailProvider::new(tokens.access_token);
+        let auth = ensure_account_oauth_auth(&state, &account_id, "gmail").await?;
+        let provider = GmailProvider::new_with_proxy(auth.tokens.access_token, auth.proxy)?;
         let (email, _history_id) = provider.get_profile().await?;
         if email.is_empty() {
             return Ok("Gmail connection successful".to_string());
@@ -468,8 +480,12 @@ pub async fn test_account_connection(
     }
 
     if matches!(account.provider, ProviderType::Outlook) {
-        let tokens = ensure_account_oauth_tokens(&state, &account_id, "outlook").await?;
-        let provider = OutlookProvider::new(tokens.access_token, account_id.clone());
+        let auth = ensure_account_oauth_auth(&state, &account_id, "outlook").await?;
+        let provider = OutlookProvider::new_with_proxy(
+            auth.tokens.access_token,
+            account_id.clone(),
+            auth.proxy,
+        )?;
         // Graph connectivity check: list mail folders.
         let folders = provider.list_folders().await?;
         return Ok(format!(
@@ -485,13 +501,17 @@ pub async fn test_account_connection(
     let decrypted = state.crypto.decrypt(&existing)?;
     let config: serde_json::Value = serde_json::from_slice(&decrypted)
         .map_err(|e| PebbleError::Internal(format!("Failed to parse config: {e}")))?;
-    let imap_config: pebble_mail::ImapConfig = serde_json::from_value(
+    let mut imap_config: pebble_mail::ImapConfig = serde_json::from_value(
         config
             .get("imap")
             .cloned()
             .ok_or_else(|| PebbleError::Internal("No IMAP config".into()))?,
     )
     .map_err(|e| PebbleError::Internal(format!("Failed to parse IMAP config: {e}")))?;
+    if imap_config.proxy.is_none() {
+        imap_config.proxy = effective_proxy_for_account(&state.crypto, &state.store, None)?
+            .map(mail_proxy_from_http);
+    }
     pebble_mail::ImapProvider::test_connection(&imap_config).await
 }
 

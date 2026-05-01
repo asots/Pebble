@@ -4,7 +4,13 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { deleteAccount, updateAccount, testAccountConnection } from "@/lib/api";
+import {
+  deleteAccount,
+  getOAuthAccountProxy,
+  testAccountConnection,
+  updateAccount,
+  updateOAuthAccountProxy,
+} from "@/lib/api";
 import type { Account, ConnectionSecurity } from "@/lib/api";
 import { useAccountsQuery, accountsQueryKey } from "@/hooks/queries";
 import { useMailStore } from "@/stores/mail.store";
@@ -402,6 +408,23 @@ function EditAccountModal({ account, onClose, onSaved }: {
   }, [account.id]);
 
   useEffect(() => {
+    if (!isOAuth) return;
+    let cancelled = false;
+    getOAuthAccountProxy(account.id)
+      .then((proxy) => {
+        if (cancelled) return;
+        setProxyHost(proxy?.host ?? "");
+        setProxyPort(proxy?.port ? String(proxy.port) : "");
+      })
+      .catch((err) => {
+        console.warn("Failed to load OAuth proxy:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [account.id, isOAuth]);
+
+  useEffect(() => {
     const previousFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
@@ -442,20 +465,29 @@ function EditAccountModal({ account, onClose, onSaved }: {
     setLoading(true);
     setError(null);
     try {
-      await updateAccount(
-        account.id,
-        email,
-        displayName,
-        password || undefined,
-        imapHost || undefined,
-        imapPort ? parseInt(imapPort, 10) : undefined,
-        smtpHost || undefined,
-        smtpPort ? parseInt(smtpPort, 10) : undefined,
-        imapSecurity || undefined,
-        smtpSecurity || undefined,
-        proxyHost || undefined,
-        proxyPort ? parseInt(proxyPort, 10) : undefined,
-      );
+      if (isOAuth) {
+        await updateAccount(account.id, email, displayName);
+        await updateOAuthAccountProxy(
+          account.id,
+          proxyHost.trim() || undefined,
+          proxyPort ? parseInt(proxyPort, 10) : undefined,
+        );
+      } else {
+        await updateAccount(
+          account.id,
+          email,
+          displayName,
+          password || undefined,
+          imapHost || undefined,
+          imapPort ? parseInt(imapPort, 10) : undefined,
+          smtpHost || undefined,
+          smtpPort ? parseInt(smtpPort, 10) : undefined,
+          imapSecurity || undefined,
+          smtpSecurity || undefined,
+          proxyHost.trim() || undefined,
+          proxyPort ? parseInt(proxyPort, 10) : undefined,
+        );
+      }
       await setSignature(account.id, signature);
       onSaved();
     } catch (err) {
@@ -469,6 +501,18 @@ function EditAccountModal({ account, onClose, onSaved }: {
     display: "flex",
     flexDirection: "column",
   };
+  const proxyFields = (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px" }}>
+      <div style={fieldStyle}>
+        <label style={labelStyle}>{t("accountSetup.proxyHost", "SOCKS5 Proxy")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
+        <input aria-label={t("accountSetup.proxyHost", "SOCKS5 Proxy")} style={inputStyle} type="text" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} placeholder="127.0.0.1" />
+      </div>
+      <div style={fieldStyle}>
+        <label style={labelStyle}>{t("accountSetup.proxyPort", "Port")}</label>
+        <input aria-label={t("accountSetup.proxyPort", "Port")} style={{ ...inputStyle, width: "80px" }} type="number" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} placeholder="7890" />
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -544,7 +588,7 @@ function EditAccountModal({ account, onClose, onSaved }: {
               >
                 {t(
                   "settings.oauthAccountNote",
-                  "This account uses OAuth — sign-in, password, IMAP/SMTP, and proxy are managed by the provider and not editable here."
+                  "This account uses OAuth. Provider sign-in, password, and IMAP/SMTP settings are managed by the provider. Leave the proxy blank to inherit the global SOCKS5 proxy."
                 )}
               </div>
             ) : (
@@ -592,19 +636,10 @@ function EditAccountModal({ account, onClose, onSaved }: {
                   </div>
                 </div>
 
-                {/* SOCKS5 Proxy */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px" }}>
-                  <div style={fieldStyle}>
-                    <label style={labelStyle}>{t("accountSetup.proxyHost", "SOCKS5 Proxy")} <span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span></label>
-                    <input aria-label={t("accountSetup.proxyHost", "SOCKS5 Proxy")} style={inputStyle} type="text" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} placeholder="127.0.0.1" />
-                  </div>
-                  <div style={fieldStyle}>
-                    <label style={labelStyle}>{t("accountSetup.proxyPort", "Port")}</label>
-                    <input aria-label={t("accountSetup.proxyPort", "Port")} style={{ ...inputStyle, width: "80px" }} type="number" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} placeholder="7890" />
-                  </div>
-                </div>
               </>
             )}
+
+            {proxyFields}
 
             {/* Signature */}
             <div style={fieldStyle}>

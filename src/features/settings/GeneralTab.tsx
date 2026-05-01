@@ -1,5 +1,8 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { getGlobalProxy, updateGlobalProxy } from "@/lib/api";
+import { extractErrorMessage } from "@/lib/extractErrorMessage";
+import { useToastStore } from "@/stores/toast.store";
 import { useUIStore, type RealtimePreference } from "@/stores/ui.store";
 
 const REALTIME_OPTIONS: Array<{
@@ -41,10 +44,58 @@ const REALTIME_OPTIONS: Array<{
 
 export default function GeneralTab() {
   const { t } = useTranslation();
+  const addToast = useToastStore((s) => s.addToast);
   const realtimeMode = useUIStore((s) => s.realtimeMode);
   const setRealtimeMode = useUIStore((s) => s.setRealtimeMode);
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled);
   const setNotificationsEnabled = useUIStore((s) => s.setNotificationsEnabled);
+  const [proxyHost, setProxyHost] = useState("");
+  const [proxyPort, setProxyPort] = useState("");
+  const [proxyLoading, setProxyLoading] = useState(true);
+  const [proxySaving, setProxySaving] = useState(false);
+  const [proxyError, setProxyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProxyLoading(true);
+    getGlobalProxy()
+      .then((proxy) => {
+        if (cancelled) return;
+        setProxyHost(proxy?.host ?? "");
+        setProxyPort(proxy?.port ? String(proxy.port) : "");
+        setProxyError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setProxyError(extractErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setProxyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveGlobalProxy = useCallback(async () => {
+    setProxySaving(true);
+    setProxyError(null);
+    const trimmedHost = proxyHost.trim();
+    const trimmedPort = proxyPort.trim();
+    const parsedPort = trimmedPort ? Number.parseInt(trimmedPort, 10) : undefined;
+    const normalizedPort =
+      parsedPort === undefined || Number.isNaN(parsedPort) ? undefined : parsedPort;
+    try {
+      await updateGlobalProxy(trimmedHost || undefined, normalizedPort);
+      addToast({
+        message: t("settings.globalProxySaved", "Global proxy saved"),
+        type: "success",
+      });
+    } catch (err) {
+      setProxyError(extractErrorMessage(err));
+    } finally {
+      setProxySaving(false);
+    }
+  }, [addToast, proxyHost, proxyPort, t]);
 
   const toggleNotifications = useCallback(() => {
     setNotificationsEnabled(!notificationsEnabled);
@@ -102,6 +153,75 @@ export default function GeneralTab() {
           );
         })}
       </div>
+
+      <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px", marginTop: "32px" }}>
+        {t("settings.globalProxy", "Global Proxy")}
+      </h3>
+      <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginBottom: "12px", marginTop: 0 }}>
+        {t("settings.globalProxyDesc", "Used by OAuth, Gmail/Outlook API requests, IMAP, and SMTP when an account does not define its own SOCKS5 proxy.")}
+      </p>
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label style={{ display: "grid", gap: "6px", fontSize: "12px", color: "var(--color-text-secondary)", flex: "1 1 220px", minWidth: 0 }}>
+          {t("settings.globalProxyHost", "SOCKS5 Proxy")}
+          <input
+            aria-label={t("settings.globalProxyHost", "SOCKS5 Proxy")}
+            type="text"
+            value={proxyHost}
+            onChange={(e) => setProxyHost(e.target.value)}
+            placeholder="127.0.0.1"
+            disabled={proxyLoading || proxySaving}
+            style={{
+              padding: "8px 10px",
+              borderRadius: "6px",
+              border: "1px solid var(--color-border)",
+              backgroundColor: "var(--color-bg-primary)",
+              color: "var(--color-text-primary)",
+              fontSize: "13px",
+            }}
+          />
+        </label>
+        <label style={{ display: "grid", gap: "6px", fontSize: "12px", color: "var(--color-text-secondary)", width: "110px" }}>
+          {t("settings.globalProxyPort", "Port")}
+          <input
+            aria-label={t("settings.globalProxyPort", "Port")}
+            type="number"
+            value={proxyPort}
+            onChange={(e) => setProxyPort(e.target.value)}
+            placeholder="7890"
+            disabled={proxyLoading || proxySaving}
+            style={{
+              padding: "8px 10px",
+              borderRadius: "6px",
+              border: "1px solid var(--color-border)",
+              backgroundColor: "var(--color-bg-primary)",
+              color: "var(--color-text-primary)",
+              fontSize: "13px",
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={saveGlobalProxy}
+          disabled={proxyLoading || proxySaving}
+          style={{
+            padding: "8px 12px",
+            borderRadius: "6px",
+            border: "1px solid var(--color-border)",
+            backgroundColor: "var(--color-bg-hover)",
+            color: "var(--color-text-primary)",
+            cursor: proxyLoading || proxySaving ? "default" : "pointer",
+            fontSize: "13px",
+            fontWeight: 500,
+          }}
+        >
+          {proxySaving ? t("common.saving", "Saving...") : t("common.save", "Save")}
+        </button>
+      </div>
+      {proxyError && (
+        <p style={{ fontSize: "12px", color: "var(--color-error)", marginTop: "8px", marginBottom: 0 }}>
+          {proxyError}
+        </p>
+      )}
 
       <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "16px", marginTop: "32px" }}>
         {t("settings.notifications")}

@@ -10,6 +10,7 @@ use oauth2::{
     AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl, RefreshToken,
     Scope, TokenUrl,
 };
+pub use pebble_core::HttpProxyConfig;
 
 /// Configuration for an OAuth2 provider.
 #[derive(Debug, Clone)]
@@ -20,6 +21,11 @@ pub struct OAuthConfig {
     pub token_url: String,
     pub scopes: Vec<String>,
     pub redirect_port: u16,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OAuthNetworkConfig {
+    pub proxy: Option<HttpProxyConfig>,
 }
 
 /// Errors that can occur during the OAuth flow.
@@ -42,6 +48,7 @@ pub enum OAuthError {
 /// Manages the full OAuth2 PKCE authentication flow.
 pub struct OAuthManager {
     config: OAuthConfig,
+    network: OAuthNetworkConfig,
 }
 
 /// Parsed and validated URL components, ready to build an oauth2 client.
@@ -87,7 +94,14 @@ impl OAuthManager {
     }
 
     pub fn new(config: OAuthConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            network: OAuthNetworkConfig::default(),
+        }
+    }
+
+    pub fn new_with_network(config: OAuthConfig, network: OAuthNetworkConfig) -> Self {
+        Self { config, network }
     }
 
     /// Parse and validate the URLs from the config.
@@ -158,9 +172,7 @@ impl OAuthManager {
             .set_token_uri(urls.token_url)
             .set_redirect_uri(urls.redirect_url);
 
-        let http_client = reqwest::ClientBuilder::new()
-            .build()
-            .map_err(|e| OAuthError::Request(format!("Failed to build HTTP client: {}", e)))?;
+        let http_client = build_http_client(&self.network)?;
 
         let token_result = client
             .exchange_code(AuthorizationCode::new(code.to_string()))
@@ -183,9 +195,7 @@ impl OAuthManager {
             .set_token_uri(urls.token_url)
             .set_redirect_uri(urls.redirect_url);
 
-        let http_client = reqwest::ClientBuilder::new()
-            .build()
-            .map_err(|e| OAuthError::Request(format!("Failed to build HTTP client: {}", e)))?;
+        let http_client = build_http_client(&self.network)?;
 
         let token_result = client
             .exchange_refresh_token(&RefreshToken::new(refresh_token.to_string()))
@@ -208,6 +218,19 @@ impl OAuthManager {
     pub async fn wait_for_redirect(&self) -> Result<OAuthRedirect, OAuthError> {
         redirect::wait_for_redirect(self.config.redirect_port).await
     }
+}
+
+pub fn build_http_client(network: &OAuthNetworkConfig) -> Result<reqwest::Client, OAuthError> {
+    let mut builder = reqwest::ClientBuilder::new();
+    if let Some(proxy) = &network.proxy {
+        let uri = proxy.socks5h_uri().map_err(OAuthError::Config)?;
+        let reqwest_proxy = reqwest::Proxy::all(&uri)
+            .map_err(|e| OAuthError::Config(format!("Invalid proxy: {e}")))?;
+        builder = builder.proxy(reqwest_proxy);
+    }
+    builder
+        .build()
+        .map_err(|e| OAuthError::Request(format!("Failed to build HTTP client: {}", e)))
 }
 
 /// Convert an oauth2 token response into our [`TokenPair`].
@@ -294,6 +317,31 @@ mod tests {
         assert!(url.contains("code_challenge"));
         assert!(!state.verifier.secret().is_empty());
         assert!(!state.csrf_token.secret().is_empty());
+    }
+
+    #[test]
+    fn http_client_builder_accepts_socks5h_proxy() {
+        let network = OAuthNetworkConfig {
+            proxy: Some(HttpProxyConfig {
+                host: "127.0.0.1".into(),
+                port: 7890,
+            }),
+        };
+
+        assert!(build_http_client(&network).is_ok());
+    }
+
+    #[test]
+    fn http_client_builder_rejects_invalid_proxy() {
+        let network = OAuthNetworkConfig {
+            proxy: Some(HttpProxyConfig {
+                host: " ".into(),
+                port: 0,
+            }),
+        };
+
+        let err = build_http_client(&network).unwrap_err();
+        assert!(matches!(err, OAuthError::Config(_)));
     }
 
     #[tokio::test]

@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use crate::commands::attachments::{sanitize_stored_filename, stage_local_attachment_records};
 use crate::commands::messages::refresh_search_document;
-use crate::commands::oauth::ensure_account_oauth_tokens;
+use crate::commands::network::{effective_proxy_for_account, mail_proxy_from_http};
+use crate::commands::oauth::ensure_account_oauth_auth;
 use crate::{events, state::AppState};
 use pebble_core::traits::{MailTransport, OutgoingMessage};
 use pebble_core::{
@@ -220,13 +221,20 @@ pub(crate) fn load_smtp_config(
     let config: serde_json::Value = serde_json::from_slice(&decrypted)
         .map_err(|e| PebbleError::Internal(format!("Failed to parse decrypted config: {e}")))?;
 
-    serde_json::from_value(
+    let mut smtp_config: SmtpConfig = serde_json::from_value(
         config
             .get("smtp")
             .cloned()
             .ok_or_else(|| PebbleError::Internal("No SMTP config in auth data".to_string()))?,
     )
-    .map_err(|e| PebbleError::Internal(format!("Failed to deserialize SMTP config: {e}")))
+    .map_err(|e| PebbleError::Internal(format!("Failed to deserialize SMTP config: {e}")))?;
+
+    if smtp_config.proxy.is_none() {
+        smtp_config.proxy =
+            effective_proxy_for_account(crypto, store, None)?.map(mail_proxy_from_http);
+    }
+
+    Ok(smtp_config)
 }
 
 pub(crate) async fn send_imap_smtp_message(
@@ -362,14 +370,18 @@ pub async fn send_email(
             ProviderType::Outlook => "outlook",
             _ => unreachable!(),
         };
-        let tokens = ensure_account_oauth_tokens(&state, &account_id, provider_name).await?;
+        let auth = ensure_account_oauth_auth(&state, &account_id, provider_name).await?;
         let result = match account.provider {
             ProviderType::Gmail => {
-                let provider = GmailProvider::new(tokens.access_token);
+                let provider = GmailProvider::new_with_proxy(auth.tokens.access_token, auth.proxy)?;
                 provider.send_message(&outgoing).await
             }
             ProviderType::Outlook => {
-                let provider = OutlookProvider::new(tokens.access_token, account_id);
+                let provider = OutlookProvider::new_with_proxy(
+                    auth.tokens.access_token,
+                    account_id,
+                    auth.proxy,
+                )?;
                 provider.send_message(&outgoing).await
             }
             _ => unreachable!(),

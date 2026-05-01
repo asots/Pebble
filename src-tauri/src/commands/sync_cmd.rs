@@ -393,7 +393,10 @@ fn build_sync_task(
                 }
             };
             let expires_at = tokens.expires_at;
-            let provider = Arc::new(GmailProvider::new(tokens.access_token.clone()));
+            let provider = Arc::new(GmailProvider::new_with_proxy(
+                tokens.access_token.clone(),
+                tokens.proxy.clone(),
+            )?);
             let refresher = build_oauth_token_refresher(
                 gmail_oauth_config(),
                 tokens.refresh_token,
@@ -461,10 +464,11 @@ fn build_sync_task(
                 }
             };
             let expires_at = tokens.expires_at;
-            let provider = Arc::new(OutlookProvider::new(
+            let provider = Arc::new(OutlookProvider::new_with_proxy(
                 tokens.access_token.clone(),
                 account_id_clone.clone(),
-            ));
+                tokens.proxy.clone(),
+            )?);
             let refresher = build_oauth_token_refresher(
                 outlook_oauth_config(),
                 tokens.refresh_token,

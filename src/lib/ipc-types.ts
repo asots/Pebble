@@ -157,6 +157,12 @@ export interface AddAccountRequest {
   proxy_port?: number;
 }
 
+/** @rust pebble-core/src/types.rs -> HttpProxyConfig */
+export interface HttpProxyConfig {
+  host: string;
+  port: number;
+}
+
 // ─── Attachment types ───────────────────────────────────────────────────────────
 
 /** @rust pebble-core/src/types.rs → Attachment */

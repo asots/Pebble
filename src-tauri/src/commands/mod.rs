@@ -15,6 +15,7 @@ pub mod indexing;
 pub mod kanban;
 pub mod labels;
 pub mod messages;
+pub mod network;
 pub mod notifications;
 pub mod oauth;
 pub mod pending_mail_ops;

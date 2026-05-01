@@ -6,7 +6,8 @@ pub mod rendering;
 
 // Shared helpers used by flags and lifecycle submodules.
 
-use crate::commands::oauth::ensure_account_oauth_tokens;
+use crate::commands::network::{effective_proxy_for_account, mail_proxy_from_http};
+use crate::commands::oauth::ensure_account_oauth_auth;
 use crate::state::AppState;
 use pebble_core::{FolderRole, Message, PebbleError};
 use pebble_crypto::CryptoService;
@@ -79,19 +80,16 @@ pub(super) async fn connect_gmail(
     state: &AppState,
     account_id: &str,
 ) -> std::result::Result<GmailProvider, PebbleError> {
-    let tokens = ensure_account_oauth_tokens(state, account_id, "gmail").await?;
-    Ok(GmailProvider::new(tokens.access_token))
+    let auth = ensure_account_oauth_auth(state, account_id, "gmail").await?;
+    GmailProvider::new_with_proxy(auth.tokens.access_token, auth.proxy)
 }
 
 pub(super) async fn connect_outlook(
     state: &AppState,
     account_id: &str,
 ) -> std::result::Result<OutlookProvider, PebbleError> {
-    let tokens = ensure_account_oauth_tokens(state, account_id, "outlook").await?;
-    Ok(OutlookProvider::new(
-        tokens.access_token,
-        account_id.to_string(),
-    ))
+    let auth = ensure_account_oauth_auth(state, account_id, "outlook").await?;
+    OutlookProvider::new_with_proxy(auth.tokens.access_token, account_id.to_string(), auth.proxy)
 }
 
 pub(crate) fn refresh_search_document(
@@ -184,7 +182,7 @@ pub(super) fn load_imap_config(
     crypto: &CryptoService,
     account_id: &str,
 ) -> std::result::Result<ImapConfig, PebbleError> {
-    if let Some(encrypted) = store.get_auth_data(account_id)? {
+    let mut config: ImapConfig = if let Some(encrypted) = store.get_auth_data(account_id)? {
         let decrypted = crypto.decrypt(&encrypted)?;
         let value: serde_json::Value = serde_json::from_slice(&decrypted)
             .map_err(|e| PebbleError::Internal(format!("Failed to parse config: {e}")))?;
@@ -200,7 +198,13 @@ pub(super) fn load_imap_config(
         })?;
         serde_json::from_value(imap_value)
             .map_err(|e| PebbleError::Internal(format!("Failed to deserialize IMAP config: {e}")))
+    }?;
+
+    if config.proxy.is_none() {
+        config.proxy = effective_proxy_for_account(crypto, store, None)?.map(mail_proxy_from_http);
     }
+
+    Ok(config)
 }
 
 /// Resolve an IMAP connection from the account's auth data.

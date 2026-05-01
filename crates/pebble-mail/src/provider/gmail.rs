@@ -5,11 +5,12 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
+use super::http_client_with_proxy;
 use crate::parser::{AttachmentData, AttachmentMeta};
 use pebble_core::traits::*;
 use pebble_core::{
-    new_id, now_timestamp, DraftMessage, EmailAddress, Folder, FolderRole, FolderType, Message,
-    PebbleError, ProviderCapabilities, Result,
+    new_id, now_timestamp, DraftMessage, EmailAddress, Folder, FolderRole, FolderType,
+    HttpProxyConfig, Message, PebbleError, ProviderCapabilities, Result,
 };
 
 const GMAIL_API_BASE: &str = "https://www.googleapis.com/gmail/v1/users/me";
@@ -167,6 +168,13 @@ impl GmailProvider {
             client: Client::new(),
             access_token: RwLock::new(access_token),
         }
+    }
+
+    pub fn new_with_proxy(access_token: String, proxy: Option<HttpProxyConfig>) -> Result<Self> {
+        Ok(Self {
+            client: http_client_with_proxy(proxy.as_ref())?,
+            access_token: RwLock::new(access_token),
+        })
     }
 
     pub fn set_access_token(&self, token: String) {
@@ -489,6 +497,40 @@ impl GmailProvider {
             created_at: now,
             updated_at: now,
         }
+    }
+}
+
+#[cfg(test)]
+mod proxy_tests {
+    use super::*;
+    use pebble_core::HttpProxyConfig;
+
+    #[test]
+    fn gmail_provider_accepts_socks5_proxy() {
+        let provider = GmailProvider::new_with_proxy(
+            "access-token".to_string(),
+            Some(HttpProxyConfig {
+                host: "127.0.0.1".to_string(),
+                port: 7890,
+            }),
+        );
+
+        assert!(provider.is_ok());
+    }
+
+    #[test]
+    fn gmail_provider_rejects_invalid_proxy() {
+        let err = GmailProvider::new_with_proxy(
+            "access-token".to_string(),
+            Some(HttpProxyConfig {
+                host: " ".to_string(),
+                port: 0,
+            }),
+        )
+        .err()
+        .unwrap();
+
+        assert!(err.to_string().contains("Proxy host"));
     }
 }
 

@@ -11,6 +11,7 @@ export type {
   ConnectionSecurity,
   EmailAddress,
   Folder,
+  HttpProxyConfig,
   KanbanCard,
   KanbanColumnType,
   KnownContact,
@@ -39,6 +40,7 @@ import type {
   BackupPreview,
   ConnectionSecurity,
   Folder,
+  HttpProxyConfig,
   KanbanCard,
   KanbanColumnType,
   KnownContact,
@@ -68,12 +70,37 @@ export async function readAppLog(maxBytes: number): Promise<AppLogSnapshot> {
   return invoke<AppLogSnapshot>("read_app_log", { maxBytes });
 }
 
+export async function getGlobalProxy(): Promise<HttpProxyConfig | null> {
+  return invoke<HttpProxyConfig | null>("get_global_proxy");
+}
+
+export async function updateGlobalProxy(
+  proxyHost?: string,
+  proxyPort?: number,
+): Promise<void> {
+  return invoke<void>("update_global_proxy", { proxyHost, proxyPort });
+}
+
 export async function completeOAuthFlow(
   provider: string,
   email: string,
   displayName: string,
+  proxyHost?: string,
+  proxyPort?: number,
 ): Promise<Account> {
-  return invoke<Account>("complete_oauth_flow", { provider, email, displayName });
+  return invoke<Account>("complete_oauth_flow", { provider, email, displayName, proxyHost, proxyPort });
+}
+
+export async function getOAuthAccountProxy(accountId: string): Promise<HttpProxyConfig | null> {
+  return invoke<HttpProxyConfig | null>("get_oauth_account_proxy", { accountId });
+}
+
+export async function updateOAuthAccountProxy(
+  accountId: string,
+  proxyHost?: string,
+  proxyPort?: number,
+): Promise<void> {
+  return invoke<void>("update_oauth_account_proxy", { accountId, proxyHost, proxyPort });
 }
 
 export async function addAccount(request: AddAccountRequest): Promise<Account> {

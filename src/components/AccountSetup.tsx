@@ -193,7 +193,13 @@ export default function AccountSetup({ onClose }: Props) {
     setOauthLoading(true);
     setError(null);
     try {
-      const account = await completeOAuthFlow(provider, form.email || "", form.display_name || "");
+      const account = await completeOAuthFlow(
+        provider,
+        form.email || "",
+        form.display_name || "",
+        form.proxy_host?.trim() || undefined,
+        form.proxy_port,
+      );
       await queryClient.invalidateQueries({ queryKey: accountsQueryKey });
       await startSync(account.id, syncPollInterval);
       refreshFoldersAfterSyncStart(queryClient, account.id);
@@ -254,6 +260,38 @@ export default function AccountSetup({ onClose }: Props) {
     flexDirection: "column",
     gap: "0",
   };
+
+  const proxyFields = (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px", marginBottom: "16px" }}>
+      <div style={fieldStyle}>
+        <label htmlFor="setup-proxy-host" style={labelStyle}>
+          {t("accountSetup.proxyHost", "SOCKS5 Proxy")}
+          {" "}<span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span>
+        </label>
+        <input
+          id="setup-proxy-host"
+          aria-label={t("accountSetup.proxyHost", "SOCKS5 Proxy")}
+          style={inputStyle}
+          type="text"
+          value={form.proxy_host ?? ""}
+          onChange={(e) => setForm((prev) => ({ ...prev, proxy_host: e.target.value || undefined }))}
+          placeholder="127.0.0.1"
+        />
+      </div>
+      <div style={fieldStyle}>
+        <label htmlFor="setup-proxy-port" style={labelStyle}>{t("accountSetup.proxyPort", "Port")}</label>
+        <input
+          id="setup-proxy-port"
+          aria-label={t("accountSetup.proxyPort", "Port")}
+          style={{ ...inputStyle, width: "80px" }}
+          type="number"
+          value={form.proxy_port ?? ""}
+          onChange={(e) => setForm((prev) => ({ ...prev, proxy_port: e.target.value ? parseInt(e.target.value, 10) : undefined }))}
+          placeholder="7890"
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -380,6 +418,8 @@ export default function AccountSetup({ onClose }: Props) {
               {oauthLoading ? t("accountSetup.adding", "Signing in...") : t("accountSetup.signInOutlook", "Sign in with Microsoft")}
             </button>
           </div>
+
+          {proxyFields}
 
           <div style={{ textAlign: "center", color: "var(--color-text-secondary)", fontSize: "12px", marginBottom: "16px" }}>
             {t("accountSetup.orManual", "or add account manually")}
@@ -556,35 +596,6 @@ export default function AccountSetup({ onClose }: Props) {
                 value={form.password}
                 onChange={(e) => handleChange("password", e.target.value)}
               />
-            </div>
-
-            {/* SOCKS5 Proxy (optional) */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px" }}>
-              <div style={fieldStyle}>
-                <label htmlFor="setup-proxy-host" style={labelStyle}>
-                  {t("accountSetup.proxyHost", "SOCKS5 Proxy")}
-                  {" "}<span style={{ color: "var(--color-text-secondary)", fontWeight: 400 }}>({t("settings.optional", "optional")})</span>
-                </label>
-                <input
-                  id="setup-proxy-host"
-                  style={inputStyle}
-                  type="text"
-                  value={form.proxy_host ?? ""}
-                  onChange={(e) => setForm((prev) => ({ ...prev, proxy_host: e.target.value || undefined }))}
-                  placeholder="127.0.0.1"
-                />
-              </div>
-              <div style={fieldStyle}>
-                <label htmlFor="setup-proxy-port" style={labelStyle}>{t("accountSetup.proxyPort", "Port")}</label>
-                <input
-                  id="setup-proxy-port"
-                  style={{ ...inputStyle, width: "80px" }}
-                  type="number"
-                  value={form.proxy_port ?? ""}
-                  onChange={(e) => setForm((prev) => ({ ...prev, proxy_port: e.target.value ? parseInt(e.target.value, 10) : undefined }))}
-                  placeholder="7890"
-                />
-              </div>
             </div>
 
             {/* Test Connection */}

@@ -9,7 +9,13 @@ const mockInvoke = vi.mocked(invoke);
 
 // Import after mocking
 import { accountsQueryKey } from "../../src/hooks/queries/useAccountsQuery";
-import { listAccounts } from "../../src/lib/api";
+import {
+  getGlobalProxy,
+  getOAuthAccountProxy,
+  listAccounts,
+  updateGlobalProxy,
+  updateOAuthAccountProxy,
+} from "../../src/lib/api";
 
 describe("useAccountsQuery", () => {
   beforeEach(() => {
@@ -37,5 +43,48 @@ describe("useAccountsQuery", () => {
 
     expect(result).toEqual(mockAccounts);
     expect(mockInvoke).toHaveBeenCalledWith("list_accounts");
+  });
+
+  it("getOAuthAccountProxy should call the correct Tauri command", async () => {
+    mockInvoke.mockResolvedValueOnce({ host: "127.0.0.1", port: 7890 });
+
+    const result = await getOAuthAccountProxy("account-1");
+
+    expect(result).toEqual({ host: "127.0.0.1", port: 7890 });
+    expect(mockInvoke).toHaveBeenCalledWith("get_oauth_account_proxy", {
+      accountId: "account-1",
+    });
+  });
+
+  it("updateOAuthAccountProxy should call the correct Tauri command", async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+
+    await updateOAuthAccountProxy("account-1", "127.0.0.1", 7890);
+
+    expect(mockInvoke).toHaveBeenCalledWith("update_oauth_account_proxy", {
+      accountId: "account-1",
+      proxyHost: "127.0.0.1",
+      proxyPort: 7890,
+    });
+  });
+
+  it("getGlobalProxy should call the correct Tauri command", async () => {
+    mockInvoke.mockResolvedValueOnce({ host: "127.0.0.1", port: 7890 });
+
+    const result = await getGlobalProxy();
+
+    expect(result).toEqual({ host: "127.0.0.1", port: 7890 });
+    expect(mockInvoke).toHaveBeenCalledWith("get_global_proxy");
+  });
+
+  it("updateGlobalProxy should call the correct Tauri command", async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+
+    await updateGlobalProxy("127.0.0.1", 7890);
+
+    expect(mockInvoke).toHaveBeenCalledWith("update_global_proxy", {
+      proxyHost: "127.0.0.1",
+      proxyPort: 7890,
+    });
   });
 });
