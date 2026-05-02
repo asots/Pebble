@@ -41,4 +41,21 @@ describe("ConfirmDialog", () => {
     expect(document.activeElement).toBe(opener);
     opener.remove();
   });
+
+  it("uses the themed dialog surface instead of a plain white panel", () => {
+    render(
+      <ConfirmDialog
+        title="Discard draft?"
+        message="You have unsaved changes."
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    const panel = screen.getByRole("dialog").firstElementChild as HTMLElement;
+
+    expect(panel.style.backgroundColor).toBe("var(--color-sidebar-bg)");
+    expect(panel.style.color).toBe("var(--color-text-primary)");
+    expect(panel.style.border).toBe("1px solid var(--color-border)");
+  });
 });
