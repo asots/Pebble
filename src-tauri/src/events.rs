@@ -9,3 +9,4 @@ pub const MAIL_NEW: &str = "mail:new";
 pub const MAIL_NOTIFICATION_OPEN: &str = "mail:notification-open";
 pub const MAIL_UNSNOOZED: &str = "mail:unsnoozed";
 pub const MAIL_PENDING_OPS_CHANGED: &str = "mail:pending-ops-changed";
+pub const APP_OPEN_MAILTO: &str = "app:open-mailto";

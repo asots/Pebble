@@ -4,14 +4,24 @@ import { useUIStore, type ActiveView } from "./ui.store";
 
 export type ComposeMode = "new" | "reply" | "reply-all" | "forward";
 
+export interface ComposePrefill {
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  body?: string;
+}
+
 interface ComposeState {
   composeMode: ComposeMode | null;
   composeReplyTo: Message | null;
+  composePrefill: ComposePrefill | null;
+  composeKey: number;
   composeDirty: boolean;
   showComposeLeaveConfirm: boolean;
   pendingView: ActiveView | null;
   setComposeDirty: (dirty: boolean) => void;
-  openCompose: (mode: ComposeMode, replyTo?: Message | null) => void;
+  openCompose: (mode: ComposeMode, replyTo?: Message | null, prefill?: ComposePrefill | null) => void;
   closeCompose: () => void;
   confirmCloseCompose: () => void;
   cancelCloseCompose: () => void;
@@ -22,6 +32,7 @@ function getComposeResetState() {
   return {
     composeMode: null as ComposeMode | null,
     composeReplyTo: null as Message | null,
+    composePrefill: null as ComposePrefill | null,
     composeDirty: false,
   };
 }
@@ -36,21 +47,27 @@ export function isComposeDirty(): boolean {
 export const useComposeStore = create<ComposeState>((set) => ({
   composeMode: null,
   composeReplyTo: null,
+  composePrefill: null,
+  composeKey: 0,
   composeDirty: false,
   showComposeLeaveConfirm: false,
   pendingView: null,
   setComposeDirty: (dirty) => set({ composeDirty: dirty }),
-  openCompose: (mode, replyTo = null) => {
+  openCompose: (mode, replyTo = null, prefill = null) => {
     const uiState = useUIStore.getState();
     useUIStore.setState({
       previousView: uiState.activeView === "compose" ? uiState.previousView : uiState.activeView,
       activeView: "compose" as ActiveView,
     });
-    set({
+    set((state) => ({
       composeMode: mode,
       composeReplyTo: replyTo,
+      composePrefill: prefill,
+      composeKey: state.composeKey + 1,
       composeDirty: false,
-    });
+      showComposeLeaveConfirm: false,
+      pendingView: null,
+    }));
   },
   closeCompose: () => {
     const state = useComposeStore.getState();

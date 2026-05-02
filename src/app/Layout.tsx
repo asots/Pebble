@@ -7,6 +7,7 @@ import CommandPalette from "../features/command-palette/CommandPalette";
 import ToastContainer from "../components/ToastContainer";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useConfirmStore } from "../stores/confirm.store";
+import { useComposeStore } from "../stores/compose.store";
 import { useUIStore, applyThemeToDom } from "../stores/ui.store";
 import { useCommandStore } from "../stores/command.store";
 import { useKanbanStore } from "../stores/kanban.store";
@@ -20,6 +21,7 @@ import { useRealtimeSyncTriggers } from "./useRealtimeSyncTriggers";
 import { useNotificationOpenNavigation } from "./useNotificationOpenNavigation";
 import { useCloseToBackground } from "./useCloseToBackground";
 import { useTrayI18n } from "./useTrayI18n";
+import { useMailtoOpen } from "./useMailtoOpen";
 
 const loadSettingsView = () => import("../features/settings/SettingsView");
 const loadComposeView = () => import("../features/compose/ComposeView");
@@ -52,6 +54,7 @@ import { setNotificationsEnabled as setBackendNotificationsEnabled } from "@/lib
 export default function Layout() {
   const activeView = useUIStore((s) => s.activeView);
   const displayedView = activeView;
+  const composeKey = useComposeStore((s) => s.composeKey);
   const setActiveView = useUIStore((s) => s.setActiveView);
   const theme = useUIStore((s) => s.theme);
   const notificationsEnabled = useUIStore((s) => s.notificationsEnabled);
@@ -73,6 +76,7 @@ export default function Layout() {
   useNotificationOpenNavigation();
   useCloseToBackground();
   useTrayI18n();
+  useMailtoOpen();
 
   // Re-register commands when language changes
   useEffect(() => {
@@ -141,7 +145,7 @@ export default function Layout() {
               {displayedView === "search" && <SearchView />}
               {displayedView === "snoozed" && <SnoozedView />}
               {displayedView === "starred" && <StarredView />}
-              {displayedView === "compose" && <ComposeView />}
+              {displayedView === "compose" && <ComposeView key={composeKey} />}
             </Suspense>
           </ViewErrorBoundary>
         </main>

@@ -150,6 +150,7 @@ export const useUIStore = create<UIState>((set) => ({
       useComposeStore.setState({
         composeMode: null,
         composeReplyTo: null,
+        composePrefill: null,
         composeDirty: false,
       });
       set({ activeView: view });

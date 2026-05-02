@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Message } from "@/lib/ipc-types";
 import type { Account } from "@/lib/ipc-types";
+import type { ComposePrefill } from "@/stores/compose.store";
 
 interface DraftRecipients {
   accountId?: string;
@@ -15,6 +16,7 @@ interface UseComposeRecipientsArgs {
   accounts: Account[];
   activeAccountId: string | null;
   restoredDraft: DraftRecipients | null;
+  composePrefill?: ComposePrefill | null;
 }
 
 export function useComposeRecipients({
@@ -23,6 +25,7 @@ export function useComposeRecipients({
   accounts,
   activeAccountId,
   restoredDraft,
+  composePrefill,
 }: UseComposeRecipientsArgs) {
   // Prefer the draft's original accountId when available — the draft body was
   // authored under that account, so restoring it under the active account
@@ -33,6 +36,7 @@ export function useComposeRecipients({
 
   const [to, setTo] = useState<string[]>(() => {
     if (restoredDraft) return restoredDraft.to ?? [];
+    if (composePrefill) return composePrefill.to ?? [];
     if (!composeReplyTo) return [];
     if (composeMode === "reply") return [composeReplyTo.from_address];
     if (composeMode === "reply-all") {
@@ -44,13 +48,14 @@ export function useComposeRecipients({
 
   const [cc, setCc] = useState<string[]>(() => {
     if (restoredDraft) return restoredDraft.cc ?? [];
+    if (composePrefill) return composePrefill.cc ?? [];
     if (composeMode === "reply-all" && composeReplyTo) {
       return composeReplyTo.cc_list.map((a) => a.address).filter((addr) => addr !== myEmail);
     }
     return [];
   });
 
-  const [bcc, setBcc] = useState<string[]>(restoredDraft?.bcc ?? []);
+  const [bcc, setBcc] = useState<string[]>(restoredDraft?.bcc ?? composePrefill?.bcc ?? []);
   const [showCc, setShowCc] = useState(() => cc.length > 0);
   const [showBcc, setShowBcc] = useState(false);
 

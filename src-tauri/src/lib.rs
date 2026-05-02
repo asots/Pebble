@@ -6,13 +6,14 @@ mod snooze_watcher;
 mod state;
 
 use state::AppState;
+use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use tauri::{
     menu::{Menu, MenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime,
+    AppHandle, Emitter, Listener, Manager, Runtime,
 };
 use tracing_subscriber::prelude::*;
 
@@ -20,6 +21,15 @@ static LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLo
 const TRAY_SHOW_ID: &str = "tray-show";
 const TRAY_HIDE_ID: &str = "tray-hide";
 const TRAY_QUIT_ID: &str = "tray-quit";
+const DEEP_LINK_NEW_URL_EVENT: &str = "deep-link://new-url";
+
+#[derive(Default)]
+struct PendingMailtoUrls(Mutex<Vec<String>>);
+
+#[derive(Clone, Serialize)]
+struct OpenMailtoPayload {
+    urls: Vec<String>,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct StartupPhaseTiming {
@@ -80,6 +90,63 @@ fn hide_main_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
+}
+
+fn is_mailto_url(value: &str) -> bool {
+    value.trim_start().to_ascii_lowercase().starts_with("mailto:")
+}
+
+fn unique_mailto_urls(values: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut urls = Vec::new();
+    for value in values {
+        let trimmed = value.trim().to_string();
+        if is_mailto_url(&trimmed) && !urls.contains(&trimmed) {
+            urls.push(trimmed);
+        }
+    }
+    urls
+}
+
+fn mailto_urls_from_deep_link_payload(payload: &str) -> Vec<String> {
+    if let Ok(urls) = serde_json::from_str::<Vec<String>>(payload) {
+        return unique_mailto_urls(urls);
+    }
+    if let Ok(url) = serde_json::from_str::<String>(payload) {
+        return unique_mailto_urls([url]);
+    }
+    unique_mailto_urls([payload.to_string()])
+}
+
+fn mailto_urls_from_args(args: &[String]) -> Vec<String> {
+    unique_mailto_urls(args.iter().cloned())
+}
+
+fn record_mailto_urls<R: Runtime>(app: &AppHandle<R>, urls: Vec<String>) {
+    let urls = unique_mailto_urls(urls);
+    if urls.is_empty() {
+        return;
+    }
+
+    let mut urls_to_emit = Vec::new();
+    if let Some(state) = app.try_state::<PendingMailtoUrls>() {
+        if let Ok(mut pending) = state.0.lock() {
+            for url in &urls {
+                if !pending.contains(url) {
+                    pending.push(url.clone());
+                    urls_to_emit.push(url.clone());
+                }
+            }
+        }
+    } else {
+        urls_to_emit = urls;
+    }
+
+    if urls_to_emit.is_empty() {
+        return;
+    }
+
+    restore_main_window(app);
+    let _ = app.emit(events::APP_OPEN_MAILTO, OpenMailtoPayload { urls: urls_to_emit });
 }
 
 fn build_tray_menu<R: Runtime, M: Manager<R>>(
@@ -146,9 +213,28 @@ fn set_tray_menu_labels(
     tray.set_menu(Some(menu)).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn take_pending_mailto_urls(state: tauri::State<PendingMailtoUrls>) -> Vec<String> {
+    match state.0.lock() {
+        Ok(mut pending) => std::mem::take(&mut *pending),
+        Err(_) => Vec::new(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            restore_main_window(app);
+            record_mailto_urls(app, mailto_urls_from_args(&args));
+        }));
+    }
+
+    builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
@@ -182,6 +268,7 @@ pub fn run() {
             if let Err(e) = setup_tray(app) {
                 tracing::warn!("Failed to create system tray icon: {e}");
             }
+            app.manage(PendingMailtoUrls::default());
 
             let db_path = get_db_path(app)?;
             tracing::info!("Database path: {}", db_path.display());
@@ -234,6 +321,15 @@ pub fn run() {
             let state: tauri::State<AppState> = app.state();
             let store_clone = state.store.clone();
             let app_handle = app.handle().clone();
+            let app_for_deep_link = app_handle.clone();
+            app.listen(DEEP_LINK_NEW_URL_EVENT, move |event| {
+                let urls = mailto_urls_from_deep_link_payload(event.payload());
+                record_mailto_urls(&app_for_deep_link, urls);
+            });
+            record_mailto_urls(
+                &app_handle,
+                mailto_urls_from_args(&std::env::args().collect::<Vec<_>>()),
+            );
             tauri::async_runtime::spawn(snooze_watcher::run_snooze_watcher(
                 store_clone,
                 app_handle.clone(),
@@ -332,6 +428,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_tray_menu_labels,
+            take_pending_mailto_urls,
             commands::health::health_check,
             commands::health::check_for_update,
             commands::health::open_external_url,

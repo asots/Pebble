@@ -24,6 +24,7 @@ interface UseComposeEditorArgs {
     rawSource?: string;
     richTextHtml?: string;
   } | null;
+  prefillBody?: string;
 }
 
 interface BuildComposeEditorContentArgs {
@@ -31,6 +32,7 @@ interface BuildComposeEditorContentArgs {
   composeReplyTo: Message | null;
   isReply: boolean;
   signatureHtml: string;
+  prefillBody?: string;
   t: TFunction;
 }
 
@@ -48,6 +50,13 @@ interface ShouldApplyInitialEditorContentArgs {
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function plainTextToParagraphs(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim() ? `<p>${escapeHtml(line)}</p>` : "<p><br></p>")
+    .join("");
 }
 
 function parseBodyHtml(html: string) {
@@ -89,6 +98,7 @@ export function buildComposeEditorContent({
   composeReplyTo,
   isReply,
   signatureHtml,
+  prefillBody,
   t,
 }: BuildComposeEditorContentArgs) {
   try {
@@ -102,6 +112,9 @@ export function buildComposeEditorContent({
         ? extractComposeBodyHtml(composeReplyTo.body_html_raw)
         : `<p>${escapeHtml(composeReplyTo.body_text || "")}</p>`;
       return `${signatureHtml}<br/><br/><p>${escapeHtml(t("compose.forwardedHeader"))}</p><p>${escapeHtml(t("compose.forwardedFrom", { sender }))}</p><p>${escapeHtml(t("compose.forwardedSubject", { subject: fwdSubject }))}</p>${body}`;
+    }
+    if (composeMode === "new" && prefillBody?.trim()) {
+      return `${plainTextToParagraphs(prefillBody)}${signatureHtml}`;
     }
     return signatureHtml;
   } catch (err) {
@@ -147,9 +160,10 @@ export function useComposeEditor({
   isReply,
   t,
   restoredDraft,
+  prefillBody,
 }: UseComposeEditorArgs) {
   const [editorMode, setEditorMode] = useState<EditorMode>(restoredDraft?.editorMode ?? "rich");
-  const [rawSource, setRawSource] = useState(restoredDraft?.rawSource ?? "");
+  const [rawSource, setRawSource] = useState(restoredDraft?.rawSource ?? prefillBody ?? "");
   const [richTextHtml, setRichTextHtml] = useState("");
   const [htmlPreview, setHtmlPreview] = useState(false);
   const [signature, setSignature] = useState("");
@@ -188,8 +202,8 @@ export function useComposeEditor({
   }, [signature]);
 
   const editorContent = useMemo(() => {
-    return buildComposeEditorContent({ composeMode, composeReplyTo, isReply, signatureHtml, t });
-  }, [composeMode, composeReplyTo, isReply, t, signatureHtml]);
+    return buildComposeEditorContent({ composeMode, composeReplyTo, isReply, signatureHtml, prefillBody, t });
+  }, [composeMode, composeReplyTo, isReply, t, signatureHtml, prefillBody]);
   const quotedReplyHtml = useMemo(() => {
     return isReply ? buildReplyQuoteHtml({ composeReplyTo, t }) : "";
   }, [composeReplyTo, isReply, t]);

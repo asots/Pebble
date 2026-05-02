@@ -40,6 +40,7 @@ function ComposeViewInner({ accounts }: { accounts: Account[] }) {
   const { t } = useTranslation();
   const composeMode = useComposeStore((s) => s.composeMode);
   const composeReplyTo = useComposeStore((s) => s.composeReplyTo);
+  const composePrefill = useComposeStore((s) => s.composePrefill);
   const closeCompose = useComposeStore((s) => s.closeCompose);
   const showComposeLeaveConfirm = useComposeStore((s) => s.showComposeLeaveConfirm);
   const confirmCloseCompose = useComposeStore((s) => s.confirmCloseCompose);
@@ -59,6 +60,7 @@ function ComposeViewInner({ accounts }: { accounts: Account[] }) {
   } = useComposeRecipients({
     composeMode, composeReplyTo, accounts, activeAccountId,
     restoredDraft: restoredDraft.current,
+    composePrefill,
   });
   const [toInputValue, setToInputValue] = useState("");
   const [ccInputValue, setCcInputValue] = useState("");
@@ -67,6 +69,7 @@ function ComposeViewInner({ accounts }: { accounts: Account[] }) {
   // ─── Subject ─────────────────────────────────────────────────────────────────
   const [subject, setSubject] = useState(() => {
     if (restoredDraft.current) return restoredDraft.current.subject;
+    if (composePrefill?.subject) return composePrefill.subject;
     if (!composeReplyTo) return "";
     if (isReply) return `Re: ${composeReplyTo.subject.replace(/^(Re:\s*|Fwd:\s*)+/i, "")}`;
     if (composeMode === "forward") return `Fwd: ${composeReplyTo.subject.replace(/^(Re:\s*|Fwd:\s*)+/i, "")}`;
@@ -83,6 +86,7 @@ function ComposeViewInner({ accounts }: { accounts: Account[] }) {
   } = useComposeEditor({
     fromAccountId, composeMode, composeReplyTo, isReply, t,
     restoredDraft: restoredDraft.current,
+    prefillBody: composePrefill?.body,
   });
 
   // ─── Draft persistence ───────────────────────────────────────────────────────

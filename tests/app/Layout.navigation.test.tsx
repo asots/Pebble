@@ -137,6 +137,10 @@ vi.mock("../../src/app/useTrayI18n", () => ({
   useTrayI18n: vi.fn(),
 }));
 
+vi.mock("../../src/app/useMailtoOpen", () => ({
+  useMailtoOpen: vi.fn(),
+}));
+
 vi.mock("../../src/hooks/useKeyboard", () => ({
   useKeyboard: vi.fn(),
 }));
